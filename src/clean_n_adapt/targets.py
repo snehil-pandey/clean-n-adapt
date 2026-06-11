@@ -82,7 +82,14 @@ SKIP_DEEP_NAMES = {
 }
 
 
-def deep_cache_targets(root: Path, label: str, category: str, requires_admin: bool = False, max_depth: int = 5) -> list[Target]:
+def should_skip_deep_dir(name: str) -> bool:
+    folded = name.casefold()
+    if folded in SKIP_DEEP_NAMES:
+        return True
+    return "runtime" in folded or "tool" in folded
+
+
+def deep_cache_targets(root: Path, label: str, category: str, requires_admin: bool = False, max_depth: int = 10) -> list[Target]:
     if not safe_exists(root):
         return []
     targets: list[Target] = []
@@ -101,7 +108,7 @@ def deep_cache_targets(root: Path, label: str, category: str, requires_admin: bo
             if not safe_is_dir(child):
                 continue
             child_name = child.name.casefold()
-            if child_name in SKIP_DEEP_NAMES:
+            if should_skip_deep_dir(child_name):
                 continue
             stack.append((child, depth + 1))
     return targets
