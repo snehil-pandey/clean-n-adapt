@@ -13,6 +13,7 @@ from . import __version__
 from .apps import find_apps, installed_apps, uninstall_app
 from .boost import disk_cleanup, flush_dns, reset_store, set_power_plan_high_performance
 from .cleaner import clean_items, human_size, path_size, scan_targets
+from .command_help import print_command_reference, print_home
 from .custom_rules import (
     CATEGORIES,
     RISKS,
@@ -101,6 +102,12 @@ def cmd_dashboard(args: argparse.Namespace | None = None) -> int:
         print_scan(items[:10], "Top Indexed Cleanup")
     else:
         console.print("[yellow]No cache index yet. Run cna scan --refresh.[/yellow]")
+    return 0
+
+
+def cmd_help(args: argparse.Namespace) -> int:
+    print_home()
+    print_command_reference(show_all=args.all)
     return 0
 
 
@@ -644,6 +651,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"clean-n-adapt {__version__}")
     sub = parser.add_subparsers(dest="command")
 
+    help_cmd = sub.add_parser("help", help="show clean-n-adapt command helper")
+    help_cmd.add_argument("--all", action="store_true", help="show every command and what it does")
+    help_cmd.set_defaults(func=cmd_help)
+
     status = sub.add_parser("status", help="show dashboard/status")
     status.add_argument("--compact", action="store_true")
     status.add_argument("--json", action="store_true")
@@ -770,7 +781,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args_list = sys.argv[1:] if argv is None else argv
     if not args_list:
-        return cmd_dashboard()
+        print_home()
+        print_command_reference(show_all=False)
+        return 0
     args = parser.parse_args(args_list)
     if not hasattr(args, "func"):
         parser.print_help()

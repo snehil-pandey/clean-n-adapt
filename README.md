@@ -92,6 +92,8 @@ Dashboard:
 
 ```powershell
 cna
+cna help
+cna help --all
 cna status
 cna status --compact
 cna status --json
