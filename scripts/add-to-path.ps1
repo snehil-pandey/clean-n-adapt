@@ -1,7 +1,7 @@
 param(
-    [string]$InstallDir = "C:\Program Files\cleanNadapt",
+    [string]$InstallDir = $PSScriptRoot,
     [ValidateSet("Machine", "User")]
-    [string]$Scope = "Machine"
+    [string]$Scope = "User"
 )
 
 $ErrorActionPreference = "Stop"

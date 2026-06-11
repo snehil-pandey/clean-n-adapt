@@ -1,20 +1,26 @@
 @echo off
 setlocal
-cd /d "%~dp0\.."
 
-set "INSTALL_DIR=C:\Program Files\cleanNadapt"
+set "SOURCE_DIR=%~dp0"
+if "%SOURCE_DIR:~-1%"=="\" set "SOURCE_DIR=%SOURCE_DIR:~0,-1%"
 
-if not exist ".venv" (
-    python -m venv .venv
+set "INSTALL_DIR=%~1"
+if "%INSTALL_DIR%"=="" set "INSTALL_DIR=%SOURCE_DIR%"
+
+set "SOURCE_EXE=%SOURCE_DIR%\cna.exe"
+if not exist "%SOURCE_EXE%" (
+    echo cna.exe was not found beside install.cmd.
+    echo Extract the release ZIP first, then run install.cmd from that folder.
+    exit /b 1
 )
-
-".venv\Scripts\python.exe" -m pip install --upgrade pip
-".venv\Scripts\python.exe" -m pip install -e ".[build]"
-".venv\Scripts\pyinstaller.exe" --onefile --name cna --clean src\clean_n_adapt\__main__.py
 
 mkdir "%INSTALL_DIR%" 2>nul
 mkdir "%INSTALL_DIR%\.state" 2>nul
-copy /Y "dist\cna.exe" "%INSTALL_DIR%\cna.exe" >nul
+
+if /I not "%SOURCE_EXE%"=="%INSTALL_DIR%\cna.exe" (
+    copy /Y "%SOURCE_EXE%" "%INSTALL_DIR%\cna.exe" >nul
+)
+
 (
     echo @echo off
     echo set "APP_DIR=%%~dp0"
@@ -22,9 +28,13 @@ copy /Y "dist\cna.exe" "%INSTALL_DIR%\cna.exe" >nul
     echo "%%APP_DIR%%cna.exe" %%*
 ) > "%INSTALL_DIR%\cna.cmd"
 
-call "%~dp0add-to-path.cmd" "%INSTALL_DIR%"
+if /I not "%~2"=="--no-path" (
+    call "%SOURCE_DIR%\add-to-path.cmd" "%INSTALL_DIR%"
+    if errorlevel 1 exit /b 1
+)
+
 echo.
-echo Installed to %INSTALL_DIR%
-echo State DB folder: ^<install folder^>\.state
+echo Installed clean-n-adapt to %INSTALL_DIR%
+echo State DB folder: %INSTALL_DIR%\.state
 echo Open a new terminal and run:
 echo   cna

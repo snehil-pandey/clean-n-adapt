@@ -33,24 +33,30 @@ I made the first version as a small cache-clearing script for my own convenience
 
 ## Install
 
-Run from an elevated terminal if installing into `C:\Program Files`.
+Download the Windows ZIP from the release page and extract it. The ZIP already includes `cna.exe`; the installer does not rebuild from source.
+
+By default, the extracted folder becomes the app folder. This avoids admin permission issues and keeps `.state` beside the executable.
 
 PowerShell:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 CMD:
 
 ```bat
-scripts\install.cmd
+install.cmd
 ```
 
-Default install folder:
+To install/copy into a custom folder:
 
-```text
-C:\Program Files\cleanNadapt\
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -InstallDir "D:\Tools\clean-n-adapt"
+```
+
+```bat
+install.cmd "D:\Tools\clean-n-adapt"
 ```
 
 The state database is stored relative to the executable:
@@ -68,11 +74,11 @@ $env:CNA_STATE_DIR="D:\somewhere\clean-n-adapt-state"
 If `cna` is not found after installing, add the install folder to PATH:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\add-to-path.ps1
+powershell -ExecutionPolicy Bypass -File .\add-to-path.ps1
 ```
 
 ```bat
-scripts\add-to-path.cmd
+add-to-path.cmd
 ```
 
 ## Build
