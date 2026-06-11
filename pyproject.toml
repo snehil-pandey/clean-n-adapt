@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clean-n-adapt"
+version = "0.1.0"
+description = "Adaptive Windows cleanup, app uninstall, and PC boost CLI."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "snehil-pandey" }]
+dependencies = ["rich>=15.0.0"]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+
+[project.scripts]
+cna = "clean_n_adapt.cli:main"
+clean-n-adapt = "clean_n_adapt.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
