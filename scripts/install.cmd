@@ -22,7 +22,7 @@ copy /Y "dist\cna.exe" "%INSTALL_DIR%\cna.exe" >nul
     echo "%INSTALL_DIR%\cna.exe" %%*
 ) > "%INSTALL_DIR%\cna.cmd"
 
-setx /M PATH "%PATH%;%INSTALL_DIR%" >nul
+call "%~dp0add-to-path.cmd" "%INSTALL_DIR%"
 echo.
 echo Installed to %INSTALL_DIR%
 echo State DB folder: %STATE_DIR%

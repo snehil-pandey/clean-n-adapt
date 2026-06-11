@@ -50,6 +50,20 @@ After install, open a new terminal:
 cna
 ```
 
+If `cna` is not found after install, add the install folder to PATH again:
+
+PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\add-to-path.ps1
+```
+
+CMD:
+
+```bat
+scripts\add-to-path.cmd
+```
+
 ## Build only
 
 PowerShell:

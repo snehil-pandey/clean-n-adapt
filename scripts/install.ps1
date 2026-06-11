@@ -19,10 +19,7 @@ Copy-Item -LiteralPath ".\dist\cna.exe" -Destination (Join-Path $InstallDir "cna
 $Cmd = Join-Path $InstallDir "cna.cmd"
 Set-Content -LiteralPath $Cmd -Encoding ASCII -Value "@echo off`r`nset CNA_STATE_DIR=$StateDir`r`n`"$InstallDir\cna.exe`" %*`r`n"
 
-$CurrentPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-if ($CurrentPath -notlike "*$InstallDir*") {
-    [Environment]::SetEnvironmentVariable("Path", "$CurrentPath;$InstallDir", "Machine")
-}
+& (Join-Path $PSScriptRoot "add-to-path.ps1") -InstallDir $InstallDir -Scope Machine
 
 Write-Host ""
 Write-Host "Installed to $InstallDir" -ForegroundColor Green
