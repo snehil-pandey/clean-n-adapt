@@ -37,3 +37,5 @@ Write-Host "Installed clean-n-adapt to $InstallDir" -ForegroundColor Green
 Write-Host "State DB folder: $InstallDir\.state"
 Write-Host "Open a new terminal and run:"
 Write-Host "  cna"
+Write-Host "Or run directly now:"
+Write-Host "  `"$Cmd`""

@@ -38,3 +38,5 @@ echo Installed clean-n-adapt to %INSTALL_DIR%
 echo State DB folder: %INSTALL_DIR%\.state
 echo Open a new terminal and run:
 echo   cna
+echo Or run directly now:
+echo   "%INSTALL_DIR%\cna.cmd"

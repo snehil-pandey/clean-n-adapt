@@ -33,7 +33,7 @@ I made the first version as a small cache-clearing script for my own convenience
 
 ## Install
 
-Download the Windows ZIP from the release page and extract it. The ZIP already includes `cna.exe`; the installer does not rebuild from source.
+Download the Windows ZIP from the release page and extract it. Use `v1.1.2` or newer for the fixed PATH installer. The ZIP already includes `cna.exe`; the installer does not rebuild from source.
 
 By default, the extracted folder becomes the app folder. This avoids admin permission issues and keeps `.state` beside the executable.
 
@@ -79,6 +79,12 @@ powershell -ExecutionPolicy Bypass -File .\add-to-path.ps1
 
 ```bat
 add-to-path.cmd
+```
+
+Already-open terminals may not pick up PATH changes. Open a new terminal, or run the launcher directly:
+
+```powershell
+.\cna.cmd --version
 ```
 
 ## Build
