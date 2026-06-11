@@ -103,10 +103,14 @@ def print_history(rows: list[tuple]) -> None:
 def print_startup(entries: list[StartupEntry]) -> None:
     table = Table(title="Startup Entries")
     table.add_column("Name")
+    table.add_column("Impact")
     table.add_column("Location", style="cyan")
     table.add_column("Command", overflow="fold")
     for entry in entries:
-        table.add_row(entry.name, entry.location, entry.command)
+        text = f"{entry.name} {entry.command}".casefold()
+        impact = "High" if any(term in text for term in ("steam", "adobe", "teams", "onedrive", "dropbox", "epic", "discord", "launcher", "updater")) else "Medium" if any(term in text for term in ("spotify", "slack", "zoom", "notion", "drive", "helper")) else "Low"
+        style = "red" if impact == "High" else "yellow" if impact == "Medium" else "green"
+        table.add_row(entry.name, f"[{style}]{impact}[/{style}]", entry.location, entry.command)
     console.print(table)
 
 

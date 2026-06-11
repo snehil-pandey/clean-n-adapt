@@ -16,6 +16,8 @@ dist/
 *.spec
 *.manifest
 *.log
+release-package/
+clean-n-adapt-*.zip
 
 # Editor/workspace settings
 .vscode/

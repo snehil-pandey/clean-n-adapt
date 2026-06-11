@@ -23,6 +23,7 @@ I made the first version as a small cache-clearing script for my own convenience
 - [Build](#build)
 - [Quick Start](#quick-start)
 - [Commands](#commands)
+- [Diagnose and Advise](#diagnose-and-advise)
 - [Custom Locations](#custom-locations)
 - [Apps](#apps)
 - [Boost](#boost)
@@ -105,6 +106,8 @@ Python import/package names cannot use hyphens, so the underscore package name i
 cna
 cna help --all
 cna ui
+cna doctor
+cna health
 cna scan --refresh
 cna clean quick --dry-run
 cna apps scan --refresh
@@ -124,6 +127,34 @@ cna boost --startup
 | `cna status` | Shows dashboard status. |
 | `cna status --compact` | Prints one-line status. |
 | `cna status --json` | Prints machine-readable status JSON. |
+| `cna doctor` | Prints rule-based recommendations. |
+| `cna health` | Shows an offline PC health score. |
+
+### Diagnose and Advise
+
+| Command | What it does |
+| --- | --- |
+| `cna doctor` | Analyzes cache index, disk space, startup entries, and app inventory, then recommends commands. |
+| `cna health` | Shows total health score plus storage, startup, cache, maintenance, and app scores. |
+| `cna startup` | Lists registry startup entries with estimated impact. |
+| `cna startup disable NAME --yes` | Disables one matched startup entry. Previewed without `--yes`. |
+| `cna storage top C:\` | Shows largest folders under a path and records a storage sample. |
+| `cna storage history` | Shows recorded free-space history. |
+| `cna browsers` | Shows browser cache usage from the cache index. |
+| `cna downloads audit` | Audits old archives, installers, images, and duplicate names in Downloads. |
+| `cna duplicates scan PATH` | Finds duplicate files by size and SHA-256 hash. Preview only in v1.1. |
+| `cna snapshot create` | Saves apps, startup entries, and cache index snapshot. |
+| `cna snapshot compare` | Compares the two latest snapshots. |
+| `cna schedule weekly` | Creates/updates a Windows Task Scheduler maintenance task. |
+| `cna restore-point` | Requests a Windows restore point before risky maintenance. |
+
+`cna doctor` is not an LLM. It is an offline rule engine. Example advice:
+
+```text
+Browser cache is large -> cna clean browser --dry-run
+Startup impact looks high -> cna startup
+Disk free space is low -> cna storage top C:\
+```
 
 ### Scan and Clean
 

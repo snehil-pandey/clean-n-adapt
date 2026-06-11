@@ -28,6 +28,21 @@ from .custom_rules import (
     set_rule_enabled,
     validate_rule,
 )
+from .diagnostics import (
+    audit_downloads,
+    browser_cache_items,
+    build_recommendations,
+    create_restore_point,
+    create_schedule,
+    create_snapshot,
+    disable_startup_entry,
+    find_duplicates,
+    health_score,
+    read_storage_history,
+    record_storage_history,
+    snapshot_diff,
+    top_folders,
+)
 from .db import (
     add_cleanup_result,
     add_history,
@@ -36,6 +51,7 @@ from .db import (
     db_path,
     get_setting,
     history_rows,
+    latest_snapshots,
     load_app_inventory,
     load_scan,
     save_app_inventory,
@@ -541,9 +557,207 @@ def cmd_settings_set(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(_: argparse.Namespace) -> int:
+    score = health_score()
+    console.rule("[bold cyan]clean-n-adapt doctor")
+    console.print(f"[bold]PC Health Score:[/bold] {score.total}/100")
+    if not score.recommendations:
+        console.print("[green]No major maintenance issues found from the current index.[/green]")
+        return 0
+    console.print("\n[bold]Recommendations[/bold]")
+    for rec in score.recommendations:
+        color = "red" if rec.severity == "high" else "yellow" if rec.severity == "medium" else "cyan"
+        console.print(f"[{color}]• {rec.title}[/{color}] - {rec.detail}")
+    console.print("\n[bold]Recommended actions[/bold]")
+    for index, rec in enumerate(score.recommendations, 1):
+        console.print(f"{index}. [cyan]{rec.command}[/cyan]")
+    add_history("doctor", "ok", f"doctor generated {len(score.recommendations)} recommendations")
+    return 0
+
+
+def cmd_health(_: argparse.Namespace) -> int:
+    score = health_score()
+    console.rule("[bold cyan]PC Health")
+    console.print(f"[bold]PC Health Score:[/bold] {score.total}/100\n")
+    for label, value in [
+        ("Storage", score.storage),
+        ("Startup", score.startup),
+        ("Cache Hygiene", score.cache),
+        ("Maintenance", score.maintenance),
+        ("Apps", score.apps),
+    ]:
+        color = "green" if value >= 80 else "yellow" if value >= 60 else "red"
+        console.print(f"{label:15} [{color}]{value}/100[/{color}]")
+    if score.recommendations:
+        console.print("\n[bold]Top advice:[/bold]")
+        for rec in score.recommendations[:5]:
+            console.print(f"- {rec.title}: [cyan]{rec.command}[/cyan]")
+    add_history("health", "ok", f"health score {score.total}/100")
+    return 0
+
+
+def cmd_startup(args: argparse.Namespace) -> int:
+    if args.startup_action == "disable":
+        ok, message = disable_startup_entry(args.name, yes=args.yes)
+        console.print(f"[{'green' if ok else 'yellow'}]{message}[/]")
+        if not args.yes and not ok:
+            console.print("[cyan]Run again with --yes to actually disable the exact matched entry.[/cyan]")
+        return 0 if ok or not args.yes else 1
+    entries = list_startup_entries()
+    if entries:
+        print_startup(entries)
+    else:
+        console.print("[green]No registry startup entries found.[/green]")
+    add_history("startup", "preview", f"listed {len(entries)} startup entries")
+    return 0
+
+
+def cmd_storage_top(args: argparse.Namespace) -> int:
+    root = Path(args.path).expanduser()
+    rows = top_folders(root, limit=args.limit, depth=args.depth)
+    if not rows:
+        console.print("[yellow]No folders found or path is not readable.[/yellow]")
+        return 1
+    from rich.table import Table
+
+    table = Table(title=f"Largest folders under {root}")
+    table.add_column("Folder", overflow="fold")
+    table.add_column("Size", justify="right", style="green")
+    table.add_column("Files", justify="right")
+    table.add_column("Errors", justify="right")
+    for row in rows:
+        table.add_row(str(row.path), human_size(row.bytes_total), str(row.files), str(row.errors))
+    console.print(table)
+    record_storage_history(root)
+    add_history("storage", "ok", f"top folders under {root}")
+    return 0
+
+
+def cmd_storage_history(args: argparse.Namespace) -> int:
+    rows = read_storage_history(args.limit)
+    if not rows:
+        record_storage_history()
+        rows = read_storage_history(args.limit)
+    from rich.table import Table
+
+    table = Table(title="Storage History")
+    table.add_column("Root")
+    table.add_column("Free", justify="right", style="green")
+    table.add_column("Used", justify="right")
+    table.add_column("When", justify="right")
+    for row in rows:
+        age_hours = max(0, int((time.time() - float(row[5])) / 3600))
+        table.add_row(row[1], human_size(int(row[4])), human_size(int(row[3])), f"{age_hours}h ago")
+    console.print(table)
+    return 0
+
+
+def cmd_browsers(_: argparse.Namespace) -> int:
+    items = browser_cache_items(max_age_hours=None)
+    if not items:
+        console.print("[yellow]No browser cache data in the DB yet. Run cna scan --refresh.[/yellow]")
+        return 0
+    print_scan(items, "Browser Cache Usage")
+    add_history("browsers", "ok", f"listed {len(items)} browser cache targets", sum(item.bytes_total for item in items))
+    return 0
+
+
+def cmd_downloads_audit(args: argparse.Namespace) -> int:
+    audit = audit_downloads(Path(args.path).expanduser() if args.path else None, old_days=args.old_days)
+    console.rule("[bold cyan]Downloads Audit")
+    console.print(f"[bold]Path:[/bold] {audit.path}")
+    console.print(f"[bold]Total size:[/bold] {human_size(audit.total_bytes)}")
+    console.print(f"Old archives: [cyan]{audit.old_archives}[/cyan]")
+    console.print(f"Old installers: [cyan]{audit.old_installers}[/cyan]")
+    console.print(f"Old images: [cyan]{audit.old_images}[/cyan]")
+    console.print(f"Duplicate filenames: [cyan]{audit.duplicate_names}[/cyan]")
+    if audit.largest:
+        console.print("\n[bold]Largest files[/bold]")
+        for path in audit.largest:
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = 0
+            console.print(f"- {human_size(size):>10}  {path}")
+    add_history("downloads", "ok", f"audited downloads at {audit.path}", audit.total_bytes)
+    return 0
+
+
+def cmd_duplicates_scan(args: argparse.Namespace) -> int:
+    root = Path(args.path).expanduser()
+    console.print(f"[cyan]Scanning duplicates under {root}. This can take a while.[/cyan]")
+    groups = find_duplicates(root, min_size=args.min_size, limit=args.limit)
+    if not groups:
+        console.print("[green]No duplicate groups found with the current minimum size.[/green]")
+        return 0
+    savings = sum(group.size * (len(group.files) - 1) for group in groups)
+    console.print(f"[bold]Potential savings:[/bold] {human_size(savings)}")
+    for group in groups:
+        console.print(f"\n[bold]{human_size(group.size)}[/bold] x {len(group.files)} copies")
+        for path in group.files:
+            console.print(f"- {path}")
+    console.print("\n[yellow]No files were deleted. Duplicate clean is intentionally not automated in v1.1.[/yellow]")
+    add_history("duplicates", "preview", f"found {len(groups)} duplicate groups", savings)
+    return 0
+
+
+def cmd_snapshot_create(args: argparse.Namespace) -> int:
+    snap_id = create_snapshot(args.name)
+    add_history("snapshot", "ok", f"created snapshot #{snap_id}: {args.name}")
+    console.print(f"[green]Snapshot #{snap_id} created.[/green]")
+    return 0
+
+
+def cmd_snapshot_compare(args: argparse.Namespace) -> int:
+    rows = latest_snapshots(limit=2, name=args.name)
+    if len(rows) < 2:
+        console.print("[yellow]Need at least two snapshots to compare.[/yellow]")
+        return 1
+    diff = snapshot_diff(rows[1][2], rows[0][2])
+    console.rule("[bold cyan]Snapshot Compare")
+    for label, values in diff.items():
+        console.print(f"[bold]{label.replace('_', ' ').title()}[/bold]")
+        if values:
+            for value in values[:30]:
+                console.print(f"- {value}")
+        else:
+            console.print("[green]No changes.[/green]")
+    add_history("snapshot", "ok", f"compared snapshots {rows[1][0]} and {rows[0][0]}")
+    return 0
+
+
+def cmd_schedule(args: argparse.Namespace) -> int:
+    code, output = create_schedule(args.frequency, args.command)
+    if code == 0:
+        console.print("[green]Scheduled maintenance task created/updated.[/green]")
+    else:
+        console.print(f"[yellow]Task Scheduler returned {code}.[/yellow]")
+    if output:
+        console.print(output)
+    return code
+
+
+def cmd_restore_point(args: argparse.Namespace) -> int:
+    if not is_admin():
+        console.print("[yellow]Restore points usually require an elevated terminal.[/yellow]")
+    if not args.yes and not Confirm.ask("Create a Windows restore point now?", default=False):
+        console.print("[yellow]Cancelled.[/yellow]")
+        return 1
+    code, output = create_restore_point(args.description)
+    if code == 0:
+        console.print("[green]Restore point requested successfully.[/green]")
+    else:
+        console.print(f"[yellow]Restore point command returned {code}.[/yellow]")
+    if output:
+        console.print(output)
+    return code
+
+
 def ui_loop(_: argparse.Namespace | None = None) -> int:
     choices = [
         "Dashboard",
+        "Doctor",
+        "Health Score",
         "Quick Clean",
         "Deep Clean",
         "Custom Locations",
@@ -567,17 +781,25 @@ def ui_loop(_: argparse.Namespace | None = None) -> int:
             pause()
         elif pick == 2:
             console.clear()
-            cmd_clean(argparse.Namespace(mode="quick", dry_run=True, yes=False, refresh=False, cache_ttl_hours=24, include_admin=False, min_age_hours=12))
+            cmd_doctor(argparse.Namespace())
             pause()
         elif pick == 3:
             console.clear()
-            cmd_clean(argparse.Namespace(mode="deep", dry_run=True, yes=False, refresh=False, cache_ttl_hours=24, include_admin=True, min_age_hours=12))
+            cmd_health(argparse.Namespace())
             pause()
         elif pick == 4:
             console.clear()
-            cmd_custom_list(argparse.Namespace())
+            cmd_clean(argparse.Namespace(mode="quick", dry_run=True, yes=False, refresh=False, cache_ttl_hours=24, include_admin=False, min_age_hours=12))
             pause()
         elif pick == 5:
+            console.clear()
+            cmd_clean(argparse.Namespace(mode="deep", dry_run=True, yes=False, refresh=False, cache_ttl_hours=24, include_admin=True, min_age_hours=12))
+            pause()
+        elif pick == 6:
+            console.clear()
+            cmd_custom_list(argparse.Namespace())
+            pause()
+        elif pick == 7:
             console.clear()
             app_choices = ["List cached apps", "Refresh app scan", "Search cached apps", "Back"]
             print_menu("Apps", app_choices)
@@ -595,23 +817,23 @@ def ui_loop(_: argparse.Namespace | None = None) -> int:
                 console.clear()
                 cmd_apps_list(argparse.Namespace(query=query or None, limit=30, refresh=False, ttl_hours=None))
                 pause()
-        elif pick == 6:
+        elif pick == 8:
             console.clear()
             cmd_boost(argparse.Namespace(all=False, dns=False, store=False, disk_cleanup=False, high_performance=False, startup=True))
             pause()
-        elif pick == 7:
+        elif pick == 9:
             console.clear()
             cmd_monitor(argparse.Namespace(interval=1, count=1, compact=False, json=False, ttl_hours=None, refresh_each=False, include_admin=False, min_age_hours=12))
             pause()
-        elif pick == 8:
+        elif pick == 10:
             console.clear()
             cmd_history(argparse.Namespace(limit=20))
             pause()
-        elif pick == 9:
+        elif pick == 11:
             console.clear()
             cmd_settings_list(argparse.Namespace())
             pause()
-        elif pick == 10:
+        elif pick == 12:
             return 0
         else:
             console.print("[yellow]Pick a listed number.[/yellow]")
@@ -747,6 +969,65 @@ def build_parser() -> argparse.ArgumentParser:
     boost.add_argument("--high-performance", action="store_true")
     boost.add_argument("--startup", action="store_true", help="list registry startup entries only")
     boost.set_defaults(func=cmd_boost)
+
+    sub.add_parser("doctor", help="analyze the PC and print recommendations").set_defaults(func=cmd_doctor)
+    sub.add_parser("health", help="show an offline PC health score").set_defaults(func=cmd_health)
+
+    startup = sub.add_parser("startup", help="analyze or disable startup entries")
+    startup_sub = startup.add_subparsers(dest="startup_action")
+    startup_sub.add_parser("list", help="list startup entries with estimated impact").set_defaults(func=cmd_startup)
+    startup_disable = startup_sub.add_parser("disable", help="disable one exact startup entry")
+    startup_disable.add_argument("name")
+    startup_disable.add_argument("--yes", action="store_true")
+    startup_disable.set_defaults(func=cmd_startup)
+    startup.set_defaults(func=cmd_startup, startup_action="list")
+
+    storage = sub.add_parser("storage", help="storage explorer and history")
+    storage_sub = storage.add_subparsers(dest="storage_command")
+    storage_top = storage_sub.add_parser("top", help="show largest folders under a path")
+    storage_top.add_argument("path", nargs="?", default=str(Path.home()))
+    storage_top.add_argument("--limit", type=int, default=15)
+    storage_top.add_argument("--depth", type=int, default=2)
+    storage_top.set_defaults(func=cmd_storage_top)
+    storage_history = storage_sub.add_parser("history", help="show recorded free-space history")
+    storage_history.add_argument("--limit", type=int, default=24)
+    storage_history.set_defaults(func=cmd_storage_history)
+
+    sub.add_parser("browsers", help="show browser cache usage from the current index").set_defaults(func=cmd_browsers)
+
+    downloads = sub.add_parser("downloads", help="Downloads folder analysis")
+    downloads_sub = downloads.add_subparsers(dest="downloads_command")
+    downloads_audit = downloads_sub.add_parser("audit", help="audit old installers/archives/duplicates in Downloads")
+    downloads_audit.add_argument("path", nargs="?")
+    downloads_audit.add_argument("--old-days", type=int, default=90)
+    downloads_audit.set_defaults(func=cmd_downloads_audit)
+
+    duplicates = sub.add_parser("duplicates", help="duplicate file finder")
+    duplicates_sub = duplicates.add_subparsers(dest="duplicates_command")
+    duplicates_scan = duplicates_sub.add_parser("scan", help="scan for duplicate files")
+    duplicates_scan.add_argument("path")
+    duplicates_scan.add_argument("--min-size", type=int, default=1024 * 1024)
+    duplicates_scan.add_argument("--limit", type=int, default=30)
+    duplicates_scan.set_defaults(func=cmd_duplicates_scan)
+
+    snapshot_cmd = sub.add_parser("snapshot", help="create and compare system snapshots")
+    snapshot_sub = snapshot_cmd.add_subparsers(dest="snapshot_command")
+    snapshot_create = snapshot_sub.add_parser("create")
+    snapshot_create.add_argument("--name", default="default")
+    snapshot_create.set_defaults(func=cmd_snapshot_create)
+    snapshot_compare = snapshot_sub.add_parser("compare")
+    snapshot_compare.add_argument("--name", default="default")
+    snapshot_compare.set_defaults(func=cmd_snapshot_compare)
+
+    schedule = sub.add_parser("schedule", help="create Windows Task Scheduler maintenance jobs")
+    schedule.add_argument("frequency", choices=["weekly", "monthly"])
+    schedule.add_argument("--command", default="cna clean quick --yes")
+    schedule.set_defaults(func=cmd_schedule)
+
+    restore = sub.add_parser("restore-point", help="create a Windows restore point")
+    restore.add_argument("--description", default="clean-n-adapt restore point")
+    restore.add_argument("--yes", action="store_true")
+    restore.set_defaults(func=cmd_restore_point)
 
     monitor = sub.add_parser("monitor", help="watch status without cleaning anything")
     monitor.add_argument("--interval", type=int, default=10)

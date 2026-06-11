@@ -89,6 +89,21 @@ flowchart TD
     Delete --> History["history + cleanup_results"]
 ```
 
+## Diagnostics and recommendations
+
+```mermaid
+flowchart TD
+    Doctor["doctor / health"] --> Rules["offline rule engine"]
+    Rules --> ScanDB["cache scan index"]
+    Rules --> Startup["startup entries"]
+    Rules --> Apps["app inventory"]
+    Rules --> Disk["disk/free-space samples"]
+    Rules --> Advice["ranked recommendations"]
+    Advice --> Commands["safe command suggestions"]
+```
+
+The doctor command does not call an online service or LLM. It uses local thresholds and cached inventory to explain what the user can do next.
+
 ## Custom rules
 
 ```mermaid

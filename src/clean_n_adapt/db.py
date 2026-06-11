@@ -85,6 +85,20 @@ CREATE TABLE IF NOT EXISTS app_inventory (
     app_kind TEXT NOT NULL,
     scanned_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS storage_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    root TEXT NOT NULL,
+    total_bytes INTEGER NOT NULL,
+    used_bytes INTEGER NOT NULL,
+    free_bytes INTEGER NOT NULL,
+    created_at REAL NOT NULL
+);
 """
 
 
@@ -301,3 +315,49 @@ def load_app_inventory(max_age_hours: float | None = None) -> list[AppEntry]:
             )
         )
     return apps
+
+
+def save_snapshot(name: str, payload: str) -> int:
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO snapshots (name, payload, created_at) VALUES (?, ?, ?)",
+            (name, payload, time.time()),
+        )
+        return int(cur.lastrowid)
+
+
+def latest_snapshots(limit: int = 2, name: str | None = None) -> list[tuple]:
+    sql = "SELECT id, name, payload, created_at FROM snapshots"
+    params: tuple = ()
+    if name:
+        sql += " WHERE name = ?"
+        params = (name,)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params = (*params, limit)
+    with connect() as conn:
+        return conn.execute(sql, params).fetchall()
+
+
+def upsert_storage_sample(root: str, total_bytes: int, used_bytes: int, free_bytes: int) -> int:
+    with connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO storage_history (root, total_bytes, used_bytes, free_bytes, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (root, total_bytes, used_bytes, free_bytes, time.time()),
+        )
+        return int(cur.lastrowid)
+
+
+def storage_history_rows(limit: int = 24) -> list[tuple]:
+    with connect() as conn:
+        return conn.execute(
+            """
+            SELECT id, root, total_bytes, used_bytes, free_bytes, created_at
+            FROM storage_history
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
