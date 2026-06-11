@@ -110,6 +110,8 @@ cna scan --refresh
 cna scan --refresh --include-admin
 ```
 
+The built-in scan checks obvious Windows/browser temp locations and also does bounded deep discovery under common AppData, ProgramData, and project roots for cache-like folders such as `Cache`, `Code Cache`, `GPUCache`, `ShaderCache`, `LocalCache`, `TempState`, `.cache`, `.pytest_cache`, and `__pycache__`.
+
 Clean modes:
 
 ```powershell

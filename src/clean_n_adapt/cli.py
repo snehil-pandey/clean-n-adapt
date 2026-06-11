@@ -53,14 +53,14 @@ from .ui import print_apps, print_custom_rules, print_history, print_menu, print
 console = Console()
 
 MODE_FILTERS = {
-    "quick": {"Temp", "Thumbnails", "Windows", "Browsers"},
-    "safe": {"Temp", "Thumbnails", "Windows", "Browsers"},
+    "quick": {"Temp", "Thumbnails", "Windows", "Browsers", "App Cache"},
+    "safe": {"Temp", "Thumbnails", "Windows", "Browsers", "App Cache"},
     "browser": {"Browsers"},
     "dev": {"Dev"},
     "gaming": {"Game"},
     "windows": {"Windows", "System", "Thumbnails"},
-    "deep": {"Temp", "Thumbnails", "Windows", "Browsers", "Dev", "Game", "System"},
-    "full": {"Temp", "Thumbnails", "Windows", "Browsers", "Dev", "Game", "System"},
+    "deep": {"Temp", "Thumbnails", "Windows", "Browsers", "App Cache", "Dev", "Game", "System"},
+    "full": {"Temp", "Thumbnails", "Windows", "Browsers", "App Cache", "Dev", "Game", "System"},
 }
 
 
@@ -547,36 +547,63 @@ def ui_loop(_: argparse.Namespace | None = None) -> int:
         "Settings",
         "Exit",
     ]
+    def pause() -> None:
+        Prompt.ask("Press Enter to continue", default="")
+
     while True:
+        console.clear()
         print_menu("clean-n-adapt", choices)
         pick = IntPrompt.ask("Choose", default=1)
         if pick == 1:
+            console.clear()
             cmd_dashboard()
+            pause()
         elif pick == 2:
+            console.clear()
             cmd_clean(argparse.Namespace(mode="quick", dry_run=True, yes=False, refresh=False, cache_ttl_hours=24, include_admin=False, min_age_hours=12))
+            pause()
         elif pick == 3:
+            console.clear()
             cmd_clean(argparse.Namespace(mode="deep", dry_run=True, yes=False, refresh=False, cache_ttl_hours=24, include_admin=True, min_age_hours=12))
+            pause()
         elif pick == 4:
+            console.clear()
             cmd_custom_list(argparse.Namespace())
+            pause()
         elif pick == 5:
+            console.clear()
             app_choices = ["List cached apps", "Refresh app scan", "Search cached apps", "Back"]
             print_menu("Apps", app_choices)
             app_pick = IntPrompt.ask("Choose", default=1)
             if app_pick == 1:
+                console.clear()
                 cmd_apps_list(argparse.Namespace(query=None, limit=30, refresh=False, ttl_hours=None))
+                pause()
             elif app_pick == 2:
+                console.clear()
                 cmd_apps_scan(argparse.Namespace(refresh=True, quiet=False, limit=30))
+                pause()
             elif app_pick == 3:
                 query = Prompt.ask("Search app", default="")
+                console.clear()
                 cmd_apps_list(argparse.Namespace(query=query or None, limit=30, refresh=False, ttl_hours=None))
+                pause()
         elif pick == 6:
+            console.clear()
             cmd_boost(argparse.Namespace(all=False, dns=False, store=False, disk_cleanup=False, high_performance=False, startup=True))
+            pause()
         elif pick == 7:
+            console.clear()
             cmd_monitor(argparse.Namespace(interval=1, count=1, compact=False, json=False, ttl_hours=None, refresh_each=False, include_admin=False, min_age_hours=12))
+            pause()
         elif pick == 8:
+            console.clear()
             cmd_history(argparse.Namespace(limit=20))
+            pause()
         elif pick == 9:
+            console.clear()
             cmd_settings_list(argparse.Namespace())
+            pause()
         elif pick == 10:
             return 0
         else:

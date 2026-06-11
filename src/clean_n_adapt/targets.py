@@ -28,6 +28,85 @@ def list_chromium_profiles(root: Path) -> list[Path]:
     return profiles
 
 
+DEEP_CACHE_NAMES = {
+    ".cache",
+    ".parcel-cache",
+    ".pytest_cache",
+    "__pycache__",
+    "cache",
+    "cacheddata",
+    "caches",
+    "cachestorage",
+    "code cache",
+    "crashpad",
+    "d3dscache",
+    "dawncache",
+    "dxcache",
+    "gpcache",
+    "gpucache",
+    "grshadercache",
+    "htmlcache",
+    "inetcache",
+    "localcache",
+    "logs",
+    "mediacache",
+    "service worker",
+    "shader-cache",
+    "shadercache",
+    "tempstate",
+    "temp",
+    "tmp",
+    "webcache",
+}
+
+SKIP_DEEP_NAMES = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "env",
+    "onedrive",
+    "documents",
+    "desktop",
+    "downloads",
+    "pictures",
+    "videos",
+    "music",
+    "node_modules",
+    "program files",
+    "program files (x86)",
+    "runtimes",
+    "tools",
+    "venv",
+    "windows",
+}
+
+
+def deep_cache_targets(root: Path, label: str, category: str, requires_admin: bool = False, max_depth: int = 5) -> list[Target]:
+    if not safe_exists(root):
+        return []
+    targets: list[Target] = []
+    stack: list[tuple[Path, int]] = [(root, 0)]
+    visited = 0
+    while stack and visited < 8000:
+        current, depth = stack.pop()
+        visited += 1
+        current_name = current.name.casefold()
+        if depth > 0 and current_name in DEEP_CACHE_NAMES:
+            targets.append(Target(f"{label} {current.name}", category, current, requires_admin=requires_admin))
+            continue
+        if depth >= max_depth:
+            continue
+        for child in safe_iterdir(current):
+            if not safe_is_dir(child):
+                continue
+            child_name = child.name.casefold()
+            if child_name in SKIP_DEEP_NAMES:
+                continue
+            stack.append((child, depth + 1))
+    return targets
+
+
 def build_targets(include_admin: bool = False) -> list[Target]:
     user_profile = env_path("USERPROFILE") or Path.home()
     local = env_path("LOCALAPPDATA") or user_profile / "AppData" / "Local"
@@ -62,6 +141,38 @@ def build_targets(include_admin: bool = False) -> list[Target]:
         Target("NVIDIA DXCache", "Game", local / "NVIDIA" / "DXCache"),
         Target("AMD Shader Cache", "Game", local / "AMD" / "DxCache"),
         Target("Steam htmlcache", "Game", local / "Steam" / "htmlcache"),
+        Target("Windows INetCache", "Windows", local / "Microsoft" / "Windows" / "INetCache"),
+        Target("Windows Temporary Internet Files", "Windows", local / "Microsoft" / "Windows" / "Temporary Internet Files"),
+        Target("CrashDumps", "Windows", local / "CrashDumps", "*.dmp"),
+        Target("VS Code Cache", "Dev", roaming / "Code" / "Cache"),
+        Target("VS Code CachedData", "Dev", roaming / "Code" / "CachedData"),
+        Target("VS Code GPUCache", "Dev", roaming / "Code" / "GPUCache"),
+        Target("VS Code Logs", "Dev", roaming / "Code" / "logs"),
+        Target("Cursor Cache", "Dev", roaming / "Cursor" / "Cache"),
+        Target("Cursor CachedData", "Dev", roaming / "Cursor" / "CachedData"),
+        Target("Cursor GPUCache", "Dev", roaming / "Cursor" / "GPUCache"),
+        Target("Gradle Cache", "Dev", user_profile / ".gradle" / "caches"),
+        Target("Maven Repository Cache", "Dev", user_profile / ".m2" / "repository"),
+        Target("NuGet Cache", "Dev", local / "NuGet" / "Cache"),
+        Target("Go Build Cache", "Dev", local / "go-build"),
+        Target("Rust Cargo Registry Cache", "Dev", user_profile / ".cargo" / "registry" / "cache"),
+        Target("Discord Cache", "App Cache", roaming / "discord" / "Cache"),
+        Target("Discord Code Cache", "App Cache", roaming / "discord" / "Code Cache"),
+        Target("Discord GPUCache", "App Cache", roaming / "discord" / "GPUCache"),
+        Target("Slack Cache", "App Cache", roaming / "Slack" / "Cache"),
+        Target("Slack Code Cache", "App Cache", roaming / "Slack" / "Code Cache"),
+        Target("Spotify Browser Cache", "App Cache", local / "Spotify" / "Browser" / "Cache"),
+        Target("Teams Cache", "App Cache", roaming / "Microsoft" / "Teams" / "Cache"),
+        Target("Teams Code Cache", "App Cache", roaming / "Microsoft" / "Teams" / "Code Cache"),
+        Target("Telegram Cache", "App Cache", roaming / "Telegram Desktop" / "tdata" / "user_data" / "cache"),
+        Target("WhatsApp Cache", "App Cache", roaming / "WhatsApp" / "Cache"),
+        Target("Notion Cache", "App Cache", roaming / "Notion" / "Cache"),
+        Target("Figma Cache", "App Cache", roaming / "Figma" / "Cache"),
+        Target("Epic Launcher WebCache", "Game", local / "EpicGamesLauncher" / "Saved" / "webcache"),
+        Target("Riot Client Cache", "Game", local / "Riot Games" / "Riot Client" / "Data" / "Cache"),
+        Target("Battle.net Cache", "Game", program_data / "Battle.net" / "Cache", requires_admin=True),
+        Target("Steam ShaderCache", "Game", Path("C:/Program Files (x86)/Steam/steamapps/shadercache"), requires_admin=True),
+        Target("Windows Font Cache", "System", windir / "ServiceProfiles" / "LocalService" / "AppData" / "Local" / "FontCache", requires_admin=True),
     ]
 
     chromium_roots = {
@@ -99,6 +210,23 @@ def build_targets(include_admin: bool = False) -> list[Target]:
                         Target(f"Firefox {profile.name} thumbnails", "Browsers", profile / "thumbnails"),
                     ]
                 )
+
+    deep_roots = [
+        (local, "LocalAppData", "App Cache", False),
+        (roaming, "Roaming", "App Cache", False),
+        (user_profile / "AppData" / "LocalLow", "LocalLow", "App Cache", False),
+        (user_profile / ".cache", "User .cache", "Dev", False),
+        (user_profile / "source", "User source", "Dev", False),
+        (user_profile / "repos", "User repos", "Dev", False),
+        (user_profile / "Projects", "User Projects", "Dev", False),
+        (user_profile / "Documents" / "GitHub", "GitHub projects", "Dev", False),
+        (Path("D:/code"), "D code", "Dev", False),
+        (Path("D:/Dev/Projects"), "D Dev Projects", "Dev", False),
+        (program_data, "ProgramData", "App Cache", True),
+    ]
+    for root, label, category, needs_admin in deep_roots:
+        if not needs_admin or include_admin:
+            targets.extend(deep_cache_targets(root, label, category, requires_admin=needs_admin))
 
     if not include_admin:
         targets = [target for target in targets if not target.requires_admin]
