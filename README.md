@@ -2,9 +2,7 @@
 
 My Windows cleanup + maintenance CLI.
 
-I started this because my old `clear cache.bat` was doing too much in a very dumb way. It worked, but every run scanned/deleted the same stuff again and some actions were too risky to keep as raw batch commands.
-
-This version keeps a small SQLite index, uses a proper CLI, and only touches known cleanup locations.
+This started as a `clear cache.bat`, but the batch version was too blunt. This repo is the proper version: it keeps a SQLite index, has a real CLI, supports custom cleanup rules, and refuses sketchy deletes.
 
 Repo:
 
@@ -14,47 +12,21 @@ https://github.com/snehil-pandey/clean-n-adapt
 
 ## What it does
 
-- clears common temp/cache folders
-- remembers scan results in SQLite so every cleanup does not need a full scan
-- lists installed apps from Windows uninstall registry entries
-- uninstalls apps only through their official uninstall command
-- refuses app deletion when it cannot do it cleanly
-- has boost commands for simple Windows maintenance stuff
-- has status/monitor commands so I can see what the PC looks like without cleaning anything
+- dashboard/status for disk, memory, admin state, DB, scan age, and indexed cleanup size
+- quick/deep/mode-based cleaning
+- custom cleanup rules for folders, files, and glob patterns
+- app list/search/uninstall through official uninstall commands only
+- boost actions like DNS flush, Store reset, Disk Cleanup, power plan, and startup listing
+- monitor view for live disk/memory/cache state
+- history and report export
+- settings saved in SQLite
 
-Things from the old batch file that are covered:
+Things intentionally not done:
 
-- DNS flush
-- user temp cleanup
-- Windows temp cleanup when elevated
-- thumbnail/icon cache cleanup
-- browser cache cleanup for common Chromium/Firefox locations
-- Windows Store reset
-- Disk Cleanup
-- Windows Update download cache when elevated
-
-Things I am not keeping from the old batch file:
-
-- deleting registry hive files
-- deleting raw event log files
-- deleting random system logs directly
-- manually removing app folders when Windows does not provide an uninstaller
-
-Those are not worth breaking a machine over.
-
-## DB location
-
-Default:
-
-```text
-%LOCALAPPDATA%\clean-n-adapt\clean-n-adapt.db
-```
-
-Override it:
-
-```powershell
-$env:CNA_STATE_DIR="D:\somewhere\state"
-```
+- no registry hive deletion
+- no raw event log file deletion
+- no random `Program Files` app deletion
+- no silent custom cleanup
 
 ## Install
 
@@ -67,10 +39,10 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e .
-cna --help
+cna
 ```
 
-If PowerShell blocks scripts on the PC:
+If PowerShell blocks scripts:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
@@ -86,16 +58,8 @@ scripts\install.cmd
 
 ## Build exe
 
-CMD usually works without fighting execution policy:
-
 ```bat
 scripts\build-exe.cmd
-```
-
-PowerShell:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build-exe.ps1
 ```
 
 Output:
@@ -104,105 +68,142 @@ Output:
 dist\cna.exe
 ```
 
-## Commands I use
+## Main commands
 
-Fresh scan and save it to the DB:
+Open the dashboard:
+
+```powershell
+cna
+cna status
+cna status --compact
+cna status --json
+```
+
+Open the basic Rich menu UI:
+
+```powershell
+cna ui
+```
+
+Scan and update the DB:
 
 ```powershell
 cna scan --refresh
 ```
 
-Clean using the DB index:
+Clean modes:
 
 ```powershell
-cna cache clear
-```
-
-Force scan before cleaning:
-
-```powershell
-cna cache clear --refresh
+cna clean quick
+cna clean deep
+cna clean safe
+cna clean browser
+cna clean dev
+cna clean gaming
+cna clean windows
+cna clean custom
+cna clean full
 ```
 
 Dry run:
 
 ```powershell
+cna clean quick --dry-run
+cna clean full --dry-run
+```
+
+Old alias still works:
+
+```powershell
 cna cache clear --dry-run
 ```
 
-Include admin-only cleanup locations:
+## Custom locations
+
+Add a folder rule:
 
 ```powershell
-cna cache clear --include-admin
+cna custom add "D:\SomeApp\cache" --name "SomeApp cache" --category "App Cache" --recursive --risk caution
 ```
 
-One-line status:
+Add a glob rule:
 
 ```powershell
-cna status --compact
+cna custom add "D:\Builds" --type glob --pattern "*.tmp" --category Dev --recursive --min-age-hours 24
 ```
 
-JSON status:
+List/preview/clean:
 
 ```powershell
-cna status --json
+cna custom list
+cna custom preview
+cna custom preview 1
+cna custom clean --dry-run
+cna custom clean 1
 ```
 
-Monitor every 5 seconds, 6 updates:
+Manage rules:
 
 ```powershell
-cna monitor --compact --interval 5 --count 6
+cna custom show 1
+cna custom edit 1 --notes "Unreal build temp" --min-age-hours 168
+cna custom disable 1
+cna custom enable 1
+cna custom remove 1
 ```
 
-Monitor and refresh scan every time:
+Custom cleanup always previews and asks before deleting. `--yes` is not used for custom cleaning.
 
-```powershell
-cna monitor --refresh-each --interval 60
-```
+Safety checks block drive roots, Windows, Program Files, ProgramData root, and the user profile root. Important-looking paths like Desktop/Documents/repos need `--advanced`, and even then the tool still previews first.
 
-List apps:
+## Apps
 
 ```powershell
 cna apps list
-```
-
-Search apps:
-
-```powershell
 cna apps list --query brave
-```
-
-Uninstall carefully:
-
-```powershell
 cna apps uninstall "Brave"
+cna apps uninstall "Brave" --dry-run
 ```
 
-Boost basics:
+Uninstall means official uninstall command or nothing. After an uninstall, the tool only previews known leftover-looking locations.
+
+## Boost / monitor / history / reports
 
 ```powershell
 cna boost --dns --store --disk-cleanup
-```
-
-Run the safe boost set:
-
-```powershell
+cna boost --startup
 cna boost --all
+
+cna monitor --compact --interval 5 --count 6
+cna monitor --refresh-each --interval 60
+
+cna history
+cna report --format txt
+cna report --format json
 ```
 
-Use the exe:
+## Settings
 
 ```powershell
-.\dist\cna.exe status --compact
-.\dist\cna.exe scan --refresh
-.\dist\cna.exe cache clear --dry-run
-.\dist\cna.exe monitor --compact --interval 5 --count 3
+cna settings list
+cna settings set cache_warning_bytes 1073741824
+```
+
+DB location:
+
+```text
+%LOCALAPPDATA%\clean-n-adapt\clean-n-adapt.db
+```
+
+Override DB/state folder:
+
+```powershell
+$env:CNA_STATE_DIR="D:\somewhere\state"
 ```
 
 ## Notes
 
-- Cache cleanup only targets known disposable places.
-- Locked files get skipped.
+- Locked files are skipped.
 - Admin paths are skipped unless the shell is elevated.
-- App uninstall means official uninstaller or nothing.
-- The DB stores scan metadata, not file contents.
+- Reports do not include file contents.
+- The CLI is scriptable; the `ui` command is just a friendlier menu over the same actions.

@@ -52,6 +52,16 @@ def build_targets(include_admin: bool = False) -> list[Target]:
         Target("ProgramData Temp", "System", program_data / "Temp", requires_admin=True),
         Target("Update Download Cache", "System", windir / "SoftwareDistribution" / "Download", requires_admin=True),
         Target("Delivery Optimization", "System", windir / "SoftwareDistribution" / "DeliveryOptimization", requires_admin=True),
+        Target("Pip Cache", "Dev", local / "pip" / "Cache"),
+        Target("NPM Cache", "Dev", roaming / "npm-cache"),
+        Target("Yarn Cache", "Dev", local / "Yarn" / "Cache"),
+        Target("Python __pycache__", "Dev", user_profile, "__pycache__", description="Top-level Python cache folders"),
+        Target("Pytest Cache", "Dev", user_profile, ".pytest_cache", description="Top-level pytest cache folders"),
+        Target("DirectX Shader Cache", "Game", local / "D3DSCache"),
+        Target("NVIDIA GLCache", "Game", local / "NVIDIA" / "GLCache"),
+        Target("NVIDIA DXCache", "Game", local / "NVIDIA" / "DXCache"),
+        Target("AMD Shader Cache", "Game", local / "AMD" / "DxCache"),
+        Target("Steam htmlcache", "Game", local / "Steam" / "htmlcache"),
     ]
 
     chromium_roots = {

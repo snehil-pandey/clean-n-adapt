@@ -26,6 +26,53 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS custom_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    rule_type TEXT NOT NULL,
+    pattern TEXT NOT NULL,
+    category TEXT NOT NULL,
+    recursive INTEGER NOT NULL,
+    min_age_hours REAL NOT NULL,
+    min_size INTEGER NOT NULL,
+    max_size INTEGER NOT NULL,
+    include_patterns TEXT NOT NULL,
+    exclude_patterns TEXT NOT NULL,
+    risk TEXT NOT NULL,
+    require_admin INTEGER NOT NULL,
+    enabled INTEGER NOT NULL,
+    notes TEXT NOT NULL,
+    advanced INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    status TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    bytes_total INTEGER NOT NULL DEFAULT 0,
+    files_total INTEGER NOT NULL DEFAULT 0,
+    failures INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cleanup_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    history_id INTEGER NOT NULL,
+    mode TEXT NOT NULL,
+    target TEXT NOT NULL,
+    path TEXT NOT NULL,
+    bytes_total INTEGER NOT NULL DEFAULT 0,
+    files_total INTEGER NOT NULL DEFAULT 0,
+    failures INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    FOREIGN KEY(history_id) REFERENCES history(id)
+);
 """
 
 
@@ -116,3 +163,67 @@ def scan_stats(max_age_hours: float | None = None) -> tuple[int, int, float | No
     items = load_scan(max_age_hours=max_age_hours)
     newest = max((item.scanned_at for item in items), default=None)
     return len(items), sum(item.bytes_total for item in items), newest
+
+
+def get_setting(key: str, default: str = "") -> str:
+    with connect() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return default if row is None else str(row[0])
+
+
+def set_setting(key: str, value: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+
+
+def all_settings() -> dict[str, str]:
+    with connect() as conn:
+        rows = conn.execute("SELECT key, value FROM settings ORDER BY key").fetchall()
+    return {str(key): str(value) for key, value in rows}
+
+
+def add_history(action: str, status: str, summary: str, bytes_total: int = 0, files_total: int = 0, failures: int = 0) -> int:
+    with connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO history (action, status, summary, bytes_total, files_total, failures, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (action, status, summary, bytes_total, files_total, failures, time.time()),
+        )
+        return int(cur.lastrowid)
+
+
+def add_cleanup_result(history_id: int, mode: str, target: str, path: str, bytes_total: int, files_total: int, failures: int) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO cleanup_results (history_id, mode, target, path, bytes_total, files_total, failures, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (history_id, mode, target, path, bytes_total, files_total, failures, time.time()),
+        )
+
+
+def history_rows(limit: int = 25) -> list[tuple]:
+    with connect() as conn:
+        return conn.execute(
+            """
+            SELECT id, action, status, summary, bytes_total, files_total, failures, created_at
+            FROM history
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+
+def cleanup_totals() -> tuple[int, int, int]:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(bytes_total), 0), COALESCE(SUM(files_total), 0), COALESCE(SUM(failures), 0) FROM history"
+        ).fetchone()
+    return int(row[0]), int(row[1]), int(row[2])
