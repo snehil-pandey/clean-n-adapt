@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Iterable
@@ -24,7 +25,11 @@ def app_state_dir() -> Path:
     if override:
         override.mkdir(parents=True, exist_ok=True)
         return override
-    path = Path("C:/Program Files/cleanNadapt/.state")
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).resolve().parent
+    else:
+        base = Path.cwd()
+    path = base / ".state"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

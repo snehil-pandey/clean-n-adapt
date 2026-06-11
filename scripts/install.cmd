@@ -3,7 +3,6 @@ setlocal
 cd /d "%~dp0\.."
 
 set "INSTALL_DIR=C:\Program Files\cleanNadapt"
-set "STATE_DIR=%INSTALL_DIR%\.state"
 
 if not exist ".venv" (
     python -m venv .venv
@@ -14,17 +13,18 @@ if not exist ".venv" (
 ".venv\Scripts\pyinstaller.exe" --onefile --name cna --clean src\clean_n_adapt\__main__.py
 
 mkdir "%INSTALL_DIR%" 2>nul
-mkdir "%STATE_DIR%" 2>nul
+mkdir "%INSTALL_DIR%\.state" 2>nul
 copy /Y "dist\cna.exe" "%INSTALL_DIR%\cna.exe" >nul
 (
     echo @echo off
-    echo set CNA_STATE_DIR=%STATE_DIR%
-    echo "%INSTALL_DIR%\cna.exe" %%*
+    echo set "APP_DIR=%%~dp0"
+    echo set "CNA_STATE_DIR=%%APP_DIR%%.state"
+    echo "%%APP_DIR%%cna.exe" %%*
 ) > "%INSTALL_DIR%\cna.cmd"
 
 call "%~dp0add-to-path.cmd" "%INSTALL_DIR%"
 echo.
 echo Installed to %INSTALL_DIR%
-echo State DB folder: %STATE_DIR%
+echo State DB folder: ^<install folder^>\.state
 echo Open a new terminal and run:
 echo   cna

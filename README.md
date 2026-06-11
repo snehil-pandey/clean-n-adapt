@@ -41,8 +41,10 @@ C:\Program Files\cleanNadapt\
 State/database folder:
 
 ```text
-C:\Program Files\cleanNadapt\.state\
+<install folder>\.state\
 ```
+
+By default the state DB stays beside the executable. If you move the installed folder later, the DB moves with it. You can still override it with `CNA_STATE_DIR` when needed.
 
 After install, open a new terminal:
 

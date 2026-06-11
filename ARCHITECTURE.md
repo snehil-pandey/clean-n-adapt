@@ -26,7 +26,7 @@ flowchart TD
     Install --> ProgramFiles["C:/Program Files/cleanNadapt"]
     ProgramFiles --> RuntimeExe["cna.exe"]
     ProgramFiles --> Launcher["cna.cmd"]
-    ProgramFiles --> State[".state/clean-n-adapt.db"]
+    ProgramFiles --> State["relative .state/clean-n-adapt.db"]
     Launcher --> RuntimeExe
     RuntimeExe --> State
 ```
