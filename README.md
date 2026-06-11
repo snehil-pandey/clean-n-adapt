@@ -2,23 +2,37 @@
 
 Windows cleanup, app inventory, uninstall helper, and maintenance CLI.
 
-I originally made this out of convenience as a small cache-clearing script when I was in 7th standard. I kept improving it over time as my own PCs changed, and now it has grown into a proper CLI tool with a database, safety checks, custom cleanup rules, app scans, reports, and a basic Rich menu UI.
+I made the first version as a small cache-clearing script for my own convenience back in 7th standard. It kept growing as my PCs changed, and it is now a proper Windows utility with a SQLite state DB, safe cleanup modes, custom rules, app inventory, reports, and a Rich-based CLI/TUI.
 
 ## Tags
 
-`windows` `python` `cli` `rich` `sqlite` `cleanup` `maintenance` `pyinstaller` `system-utility`
+`windows` `python` `cli` `tui` `rich` `sqlite` `cleanup` `maintenance` `pyinstaller` `system-utility`
 
-## Built with
+## Tech
 
 - Python
 - Rich
 - SQLite
 - PyInstaller
-- PowerShell and CMD install scripts
+- PowerShell
+- CMD/batch
+
+## Contents
+
+- [Install](#install)
+- [Build](#build)
+- [Quick Start](#quick-start)
+- [Commands](#commands)
+- [Custom Locations](#custom-locations)
+- [Apps](#apps)
+- [Boost](#boost)
+- [State and Storage](#state-and-storage)
+- [Safety](#safety)
+- [Architecture](#architecture)
 
 ## Install
 
-Run the installer from an elevated terminal because it writes to `C:\Program Files`.
+Run from an elevated terminal if installing into `C:\Program Files`.
 
 PowerShell:
 
@@ -32,41 +46,35 @@ CMD:
 scripts\install.cmd
 ```
 
-Installed files:
+Default install folder:
 
 ```text
 C:\Program Files\cleanNadapt\
 ```
 
-State/database folder:
+The state database is stored relative to the executable:
 
 ```text
-<install folder>\.state\
+<install folder>\.state\clean-n-adapt.db
 ```
 
-By default the state DB stays beside the executable. If you move the installed folder later, the DB moves with it. You can still override it with `CNA_STATE_DIR` when needed.
-
-After install, open a new terminal:
+If the folder is moved, the app keeps using `.state` beside `cna.exe`. To override this manually:
 
 ```powershell
-cna
+$env:CNA_STATE_DIR="D:\somewhere\clean-n-adapt-state"
 ```
 
-If `cna` is not found after install, add the install folder to PATH again:
-
-PowerShell:
+If `cna` is not found after installing, add the install folder to PATH:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\add-to-path.ps1
 ```
 
-CMD:
-
 ```bat
 scripts\add-to-path.cmd
 ```
 
-## Build only
+## Build
 
 PowerShell:
 
@@ -86,63 +94,52 @@ Build output:
 dist\cna.exe
 ```
 
-## Main usage
-
-Dashboard:
+## Quick Start
 
 ```powershell
 cna
-cna help
 cna help --all
-cna status
-cna status --compact
-cna status --json
-```
-
-Rich menu UI:
-
-```powershell
 cna ui
-```
-
-Scan cache locations:
-
-```powershell
 cna scan --refresh
-cna scan --refresh --include-admin
-```
-
-The built-in scan checks obvious Windows/browser temp locations and also does bounded deep discovery up to 10 directories deep under common AppData, ProgramData, and project roots for cache-like folders such as `Cache`, `Code Cache`, `GPUCache`, `ShaderCache`, `LocalCache`, `TempState`, `.cache`, `.pytest_cache`, and `__pycache__`.
-
-Clean modes:
-
-```powershell
-cna clean quick
-cna clean deep
-cna clean safe
-cna clean browser
-cna clean dev
-cna clean gaming
-cna clean windows
-cna clean custom
-cna clean full
-```
-
-Dry-run cleanup:
-
-```powershell
 cna clean quick --dry-run
-cna clean full --dry-run
+cna apps scan --refresh
+cna boost --startup
 ```
 
-Old compatibility command:
+## Commands
 
-```powershell
-cna cache clear
-cna cache clear --dry-run
-```
+### Help and Status
 
-## Custom locations
+| Command | What it does |
+| --- | --- |
+| `cna` | Shows the home screen and common commands. |
+| `cna help` | Shows the command helper. |
+| `cna help --all` | Shows detailed command help. |
+| `cna ui` | Opens the Rich menu UI. |
+| `cna status` | Shows dashboard status. |
+| `cna status --compact` | Prints one-line status. |
+| `cna status --json` | Prints machine-readable status JSON. |
+
+### Scan and Clean
+
+| Command | What it does |
+| --- | --- |
+| `cna scan --refresh` | Refreshes the built-in cache/temp index. |
+| `cna scan --refresh --include-admin` | Includes admin-only Windows cache locations when elevated. |
+| `cna clean quick` | Cleans safe indexed locations. |
+| `cna clean quick --dry-run` | Previews quick clean without deleting. |
+| `cna clean deep` | Uses deeper indexed categories with extra caution. |
+| `cna clean browser` | Cleans browser caches only. |
+| `cna clean dev` | Cleans developer caches only. |
+| `cna clean gaming` | Cleans game/shader/launcher caches only. |
+| `cna clean windows` | Cleans Windows cache/temp entries. |
+| `cna clean custom` | Cleans enabled custom rules after preview. |
+| `cna clean full` | Runs all built-in modes and custom rules. |
+| `cna cache clear` | Compatibility alias for safe clean. |
+
+The built-in scan checks obvious Windows/browser temp locations and bounded deep discovery up to 10 directories deep under common AppData, ProgramData, and project roots. It searches cache-like folders such as `Cache`, `Code Cache`, `GPUCache`, `ShaderCache`, `LocalCache`, `TempState`, `.cache`, `.pytest_cache`, and `__pycache__`.
+
+## Custom Locations
 
 Add a folder:
 
@@ -180,38 +177,35 @@ Custom cleanup always previews and asks before deleting.
 
 ## Apps
 
-App data is scanned once and stored in SQLite. Listing uses the cached DB. Run refresh when you want updated inventory.
+App data is scanned once and stored in SQLite. Listing uses the cached DB until refresh is requested.
+
+| Command | What it does |
+| --- | --- |
+| `cna apps scan --refresh` | Refreshes cached app inventory. |
+| `cna apps list` | Lists cached apps. |
+| `cna apps list --refresh` | Refreshes inventory before listing. |
+| `cna apps list --query brave` | Searches cached app inventory. |
+| `cna apps uninstall "Brave"` | Launches the official uninstaller only. |
+| `cna apps uninstall "Brave" --dry-run` | Shows what would happen without launching. |
+
+Apps are sorted by system, user, and Windows Store style packages.
+
+## Boost
+
+| Command | What it does |
+| --- | --- |
+| `cna boost --dns` | Runs `ipconfig /flushdns`. |
+| `cna boost --store` | Resets Microsoft Store cache. |
+| `cna boost --disk-cleanup` | Runs Windows Disk Cleanup. |
+| `cna boost --high-performance` | Switches to high-performance power plan. |
+| `cna boost --startup` | Lists startup registry entries only. |
+| `cna boost --all` | Runs the safe boost set: DNS, Store reset, Disk Cleanup. |
+
+## Monitor, History, and Reports
 
 ```powershell
-cna apps scan --refresh
-cna apps list
-cna apps list --refresh
-cna apps list --query brave
-cna apps uninstall "Brave"
-cna apps uninstall "Brave" --dry-run
-```
-
-Apps are grouped/sorted by:
-
-- system apps
-- user apps
-- Windows Store style packages
-
-Uninstalling only launches official uninstall commands. If Windows does not provide one, clean-n-adapt refuses manual deletion.
-
-## Boost, monitor, history, reports
-
-```powershell
-cna boost --dns
-cna boost --store
-cna boost --disk-cleanup
-cna boost --high-performance
-cna boost --startup
-cna boost --all
-
 cna monitor --compact --interval 5 --count 6
 cna monitor --refresh-each --interval 60
-
 cna history
 cna report --format txt
 cna report --format json
@@ -224,23 +218,15 @@ cna settings list
 cna settings set cache_warning_bytes 1073741824
 ```
 
-## Supported commands
+## State and Storage
+
+clean-n-adapt stores runtime data in SQLite:
 
 ```text
-cna
-cna ui
-cna status [--compact] [--json] [--ttl-hours N]
-cna scan [--refresh] [--clear-db] [--include-admin] [--min-age-hours N]
-cna clean quick|deep|safe|browser|dev|gaming|windows|custom|full
-cna cache clear
-cna custom add|list|show|edit|enable|disable|remove|preview|clean
-cna apps scan|list|uninstall
-cna boost [--dns] [--store] [--disk-cleanup] [--high-performance] [--startup] [--all]
-cna monitor [--interval N] [--count N] [--compact] [--json] [--refresh-each]
-cna history [--limit N]
-cna report --format txt|json
-cna settings list|set
+<app folder>\.state\clean-n-adapt.db
 ```
+
+The database stores scan results, app inventory, settings, custom rules, history, and cleanup results. It does not store file contents.
 
 ## Safety
 
@@ -250,6 +236,7 @@ cna settings list|set
 - Admin paths are skipped unless the shell is elevated.
 - Custom cleanup never runs silently.
 - App uninstall uses official uninstall commands only.
+- Deep discovery is bounded and skips runtime/tool/virtual environment folders.
 
 ## Architecture
 

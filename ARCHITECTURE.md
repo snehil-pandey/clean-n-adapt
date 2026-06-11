@@ -1,6 +1,14 @@
-# Architecture
+# clean-n-adapt Architecture
 
 clean-n-adapt is a Windows-first Python CLI. The CLI and the Rich menu UI call the same command functions, so scripted usage and interactive usage stay linked.
+
+## Runtime Principles
+
+- Keep CLI and TUI behavior connected through the same command functions.
+- Store runtime state beside the executable by default.
+- Cache expensive scans in SQLite and refresh only when requested.
+- Prefer previews and official uninstall commands over blind deletion.
+- Keep deep discovery bounded and skip runtime/tool/virtual environment folders.
 
 ## High-level flow
 
@@ -23,10 +31,10 @@ flowchart TD
     Source["Repo checkout"] --> Build["PyInstaller build"]
     Build --> Exe["dist/cna.exe"]
     Exe --> Install["Install script"]
-    Install --> ProgramFiles["C:/Program Files/cleanNadapt"]
-    ProgramFiles --> RuntimeExe["cna.exe"]
-    ProgramFiles --> Launcher["cna.cmd"]
-    ProgramFiles --> State["relative .state/clean-n-adapt.db"]
+    Install --> AppFolder["Install folder"]
+    AppFolder --> RuntimeExe["cna.exe"]
+    AppFolder --> Launcher["cna.cmd"]
+    AppFolder --> State[".state/clean-n-adapt.db"]
     Launcher --> RuntimeExe
     RuntimeExe --> State
 ```
@@ -53,7 +61,11 @@ flowchart LR
 ```mermaid
 flowchart TD
     ScanCmd["cna scan --refresh"] --> Targets["built-in target discovery"]
-    Targets --> FS["known temp/cache/browser/dev/game/windows paths"]
+    Targets --> Known["known temp/cache/browser/dev/game/windows paths"]
+    Targets --> Deep["bounded deep discovery, depth 10"]
+    Deep --> Skip["skip runtime/tool/venv/user-content folders"]
+    Known --> FS["scan candidates"]
+    Skip --> FS
     FS --> ScanRows["scan rows"]
     ScanRows --> DB["SQLite scans table"]
     CleanCmd["cna clean mode"] --> DB
