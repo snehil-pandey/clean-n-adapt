@@ -2,6 +2,8 @@
   "explorer.excludeGitIgnore": false,
   "explorer.decorations.badges": true,
   "explorer.decorations.colors": true,
+  "git.decorations.badges": true,
+  "git.decorations.colors": true,
   "git.decorations.enabled": true,
   "git.showIgnoredFiles": true
 }
