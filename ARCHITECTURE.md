@@ -39,6 +39,20 @@ flowchart TD
     RuntimeExe --> State
 ```
 
+## Source layout
+
+```mermaid
+flowchart TD
+    Repo["clean-n-adapt repo"] --> Src["src/"]
+    Src --> Package["clean_n_adapt package"]
+    Package --> CLI["cli.py command router"]
+    Package --> UI["ui.py Rich menus"]
+    Package --> Services["apps, cleaner, boost, monitor, reports"]
+    Package --> DBLayer["db.py SQLite access"]
+```
+
+The repository uses a hyphenated project name and an underscored Python package name because Python modules cannot be imported with hyphens.
+
 ## SQLite state
 
 ```mermaid

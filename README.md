@@ -94,6 +94,11 @@ Build output:
 dist\cna.exe
 ```
 
+## Source Layout
+
+The repo is named `clean-n-adapt`, but the Python package is `clean_n_adapt` inside `src/`.
+Python import/package names cannot use hyphens, so the underscore package name is intentional.
+
 ## Quick Start
 
 ```powershell
