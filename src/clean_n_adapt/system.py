@@ -24,8 +24,7 @@ def app_state_dir() -> Path:
     if override:
         override.mkdir(parents=True, exist_ok=True)
         return override
-    base = env_path("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
-    path = base / "clean-n-adapt"
+    path = Path("C:/Program Files/cleanNadapt/.state")
     path.mkdir(parents=True, exist_ok=True)
     return path
 

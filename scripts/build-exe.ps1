@@ -10,3 +10,5 @@ if (-not (Test-Path ".venv")) {
 & .\.venv\Scripts\pyinstaller.exe --onefile --name cna --clean src\clean_n_adapt\__main__.py
 Write-Host ""
 Write-Host "Built dist\cna.exe" -ForegroundColor Green
+Write-Host "Install with:"
+Write-Host "  powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1"

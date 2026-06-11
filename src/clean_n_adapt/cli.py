@@ -27,7 +27,20 @@ from .custom_rules import (
     set_rule_enabled,
     validate_rule,
 )
-from .db import add_cleanup_result, add_history, all_settings, clear_db, db_path, get_setting, history_rows, load_scan, save_scan, set_setting
+from .db import (
+    add_cleanup_result,
+    add_history,
+    all_settings,
+    clear_db,
+    db_path,
+    get_setting,
+    history_rows,
+    load_app_inventory,
+    load_scan,
+    save_app_inventory,
+    save_scan,
+    set_setting,
+)
 from .models import CustomRule, ScanItem, Target
 from .monitor import print_snapshot, snapshot, snapshot_dict
 from .reports import export_json, export_txt
@@ -348,7 +361,15 @@ def leftover_preview(app_name: str) -> list[ScanItem]:
 
 
 def cmd_apps_list(args: argparse.Namespace) -> int:
-    apps = installed_apps() if not args.query else find_apps(args.query)
+    apps = [] if getattr(args, "refresh", False) else load_app_inventory(max_age_hours=getattr(args, "ttl_hours", None))
+    if not apps:
+        console.print("[cyan]No app inventory found. Running app scan once...[/cyan]")
+        apps = installed_apps()
+        save_app_inventory(apps)
+        add_history("apps", "ok", f"indexed {len(apps)} apps")
+    if args.query:
+        needle = args.query.casefold()
+        apps = [app for app in apps if needle in app.name.casefold()]
     if args.limit:
         apps = apps[: args.limit]
     if apps:
@@ -358,8 +379,20 @@ def cmd_apps_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_apps_scan(args: argparse.Namespace) -> int:
+    apps = installed_apps()
+    save_app_inventory(apps)
+    add_history("apps", "ok", f"refreshed app inventory: {len(apps)} apps")
+    console.print(f"[green]Indexed {len(apps)} apps.[/green]")
+    if not args.quiet:
+        shown = apps[: args.limit] if args.limit else apps
+        print_apps(shown)
+    return 0
+
+
 def cmd_apps_uninstall(args: argparse.Namespace) -> int:
-    matches = find_apps(args.name)
+    cached = load_app_inventory(max_age_hours=None)
+    matches = [app for app in cached if args.name.casefold() in app.name.casefold()] if cached else find_apps(args.name)
     if not matches:
         console.print("[red]No matching installed app found.[/red]")
         add_history("uninstall", "failed", f"no app matched {args.name}")
@@ -526,8 +559,16 @@ def ui_loop(_: argparse.Namespace | None = None) -> int:
         elif pick == 4:
             cmd_custom_list(argparse.Namespace())
         elif pick == 5:
-            query = Prompt.ask("Search app", default="")
-            cmd_apps_list(argparse.Namespace(query=query or None, limit=20))
+            app_choices = ["List cached apps", "Refresh app scan", "Search cached apps", "Back"]
+            print_menu("Apps", app_choices)
+            app_pick = IntPrompt.ask("Choose", default=1)
+            if app_pick == 1:
+                cmd_apps_list(argparse.Namespace(query=None, limit=30, refresh=False, ttl_hours=None))
+            elif app_pick == 2:
+                cmd_apps_scan(argparse.Namespace(refresh=True, quiet=False, limit=30))
+            elif app_pick == 3:
+                query = Prompt.ask("Search app", default="")
+                cmd_apps_list(argparse.Namespace(query=query or None, limit=30, refresh=False, ttl_hours=None))
         elif pick == 6:
             cmd_boost(argparse.Namespace(all=False, dns=False, store=False, disk_cleanup=False, high_performance=False, startup=True))
         elif pick == 7:
@@ -641,9 +682,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     apps = sub.add_parser("apps", help="installed app inventory and careful uninstall")
     apps_sub = apps.add_subparsers(dest="apps_command")
+    apps_scan = apps_sub.add_parser("scan", help="refresh cached app inventory")
+    apps_scan.add_argument("--refresh", action="store_true", help="kept for readability; scan always refreshes")
+    apps_scan.add_argument("--quiet", action="store_true")
+    apps_scan.add_argument("--limit", type=int, default=30)
+    apps_scan.set_defaults(func=cmd_apps_scan)
     apps_list = apps_sub.add_parser("list")
     apps_list.add_argument("--query")
     apps_list.add_argument("--limit", type=int, default=0)
+    apps_list.add_argument("--refresh", action="store_true", help="refresh app inventory before listing")
+    apps_list.add_argument("--ttl-hours", type=float, default=None, help="reuse app inventory only if newer than this")
     apps_list.set_defaults(func=cmd_apps_list)
     apps_uninstall = apps_sub.add_parser("uninstall")
     apps_uninstall.add_argument("name")

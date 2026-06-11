@@ -11,3 +11,5 @@ if not exist ".venv" (
 ".venv\Scripts\pyinstaller.exe" --onefile --name cna --clean src\clean_n_adapt\__main__.py
 echo.
 echo Built dist\cna.exe
+echo Install with:
+echo   scripts\install.cmd

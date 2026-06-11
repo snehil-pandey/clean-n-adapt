@@ -4,7 +4,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from .models import ScanItem
+from .models import AppEntry, ScanItem
 from .system import app_state_dir
 
 
@@ -72,6 +72,18 @@ CREATE TABLE IF NOT EXISTS cleanup_results (
     failures INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL,
     FOREIGN KEY(history_id) REFERENCES history(id)
+);
+CREATE TABLE IF NOT EXISTS app_inventory (
+    registry_key TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    publisher TEXT NOT NULL,
+    version TEXT NOT NULL,
+    install_location TEXT NOT NULL,
+    uninstall_string TEXT NOT NULL,
+    quiet_uninstall_string TEXT NOT NULL,
+    install_scope TEXT NOT NULL,
+    app_kind TEXT NOT NULL,
+    scanned_at REAL NOT NULL
 );
 """
 
@@ -227,3 +239,65 @@ def cleanup_totals() -> tuple[int, int, int]:
             "SELECT COALESCE(SUM(bytes_total), 0), COALESCE(SUM(files_total), 0), COALESCE(SUM(failures), 0) FROM history"
         ).fetchone()
     return int(row[0]), int(row[1]), int(row[2])
+
+
+def save_app_inventory(apps: list[AppEntry]) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM app_inventory")
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO app_inventory
+            (registry_key, name, publisher, version, install_location, uninstall_string, quiet_uninstall_string,
+             install_scope, app_kind, scanned_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    app.registry_key,
+                    app.name,
+                    app.publisher,
+                    app.version,
+                    app.install_location,
+                    app.uninstall_string,
+                    app.quiet_uninstall_string,
+                    app.install_scope,
+                    app.app_kind,
+                    app.scanned_at,
+                )
+                for app in apps
+            ],
+        )
+        conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_app_scan_at', ?)", (str(time.time()),))
+
+
+def load_app_inventory(max_age_hours: float | None = None) -> list[AppEntry]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT name, publisher, version, install_location, uninstall_string, quiet_uninstall_string,
+                   registry_key, install_scope, app_kind, scanned_at
+            FROM app_inventory
+            ORDER BY install_scope, app_kind, name
+            """
+        ).fetchall()
+    now = time.time()
+    apps: list[AppEntry] = []
+    for row in rows:
+        scanned_at = float(row[9])
+        if max_age_hours is not None and now - scanned_at > max_age_hours * 3600:
+            continue
+        apps.append(
+            AppEntry(
+                name=row[0],
+                publisher=row[1],
+                version=row[2],
+                install_location=row[3],
+                uninstall_string=row[4],
+                quiet_uninstall_string=row[5],
+                registry_key=row[6],
+                install_scope=row[7],
+                app_kind=row[8],
+                scanned_at=scanned_at,
+            )
+        )
+    return apps

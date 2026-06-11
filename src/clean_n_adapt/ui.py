@@ -43,6 +43,8 @@ def print_scan(items: list[ScanItem], title: str = "Cache Index") -> None:
 def print_apps(apps: list[AppEntry]) -> None:
     table = Table(title="Installed Apps")
     table.add_column("Name")
+    table.add_column("Scope")
+    table.add_column("Type")
     table.add_column("Publisher")
     table.add_column("Version")
     table.add_column("Install Path", overflow="fold")
@@ -50,6 +52,8 @@ def print_apps(apps: list[AppEntry]) -> None:
     for app in apps:
         table.add_row(
             app.name,
+            app.install_scope,
+            app.app_kind,
             app.publisher,
             app.version,
             app.install_location,

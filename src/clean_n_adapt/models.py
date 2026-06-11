@@ -37,6 +37,9 @@ class AppEntry:
     uninstall_string: str
     quiet_uninstall_string: str
     registry_key: str
+    install_scope: str = "system"
+    app_kind: str = "desktop"
+    scanned_at: float = 0
 
 
 @dataclass

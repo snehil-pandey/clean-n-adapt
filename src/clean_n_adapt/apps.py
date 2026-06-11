@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import subprocess
+import time
 import winreg
 
 from .models import AppEntry
 
 
 UNINSTALL_ROOTS = [
-    (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
-    (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
-    (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+    (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "system", "desktop"),
+    (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "system", "desktop"),
+    (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "user", "desktop"),
 ]
 
 
@@ -23,7 +24,8 @@ def read_value(key: winreg.HKEYType, name: str) -> str:
 
 def installed_apps() -> list[AppEntry]:
     apps: list[AppEntry] = []
-    for hive, root in UNINSTALL_ROOTS:
+    scanned_at = time.time()
+    for hive, root, scope, kind in UNINSTALL_ROOTS:
         try:
             with winreg.OpenKey(hive, root) as root_key:
                 count = winreg.QueryInfoKey(root_key)[0]
@@ -47,13 +49,54 @@ def installed_apps() -> list[AppEntry]:
                                     uninstall_string=read_value(app_key, "UninstallString"),
                                     quiet_uninstall_string=read_value(app_key, "QuietUninstallString"),
                                     registry_key=key_path,
+                                    install_scope=scope,
+                                    app_kind=kind,
+                                    scanned_at=scanned_at,
                                 )
                             )
                     except OSError:
                         continue
         except OSError:
             continue
-    return sorted(apps, key=lambda app: app.name.casefold())
+    apps.extend(windows_store_apps(scanned_at))
+    return sorted(apps, key=lambda app: (app.install_scope, app.app_kind, app.name.casefold()))
+
+
+def windows_store_apps(scanned_at: float) -> list[AppEntry]:
+    apps: list[AppEntry] = []
+    roots = [
+        (winreg.HKEY_CURRENT_USER, r"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages", "user"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore\Applications", "system"),
+    ]
+    for hive, root, scope in roots:
+        try:
+            with winreg.OpenKey(hive, root) as root_key:
+                count = winreg.QueryInfoKey(root_key)[0]
+                for index in range(count):
+                    try:
+                        package = winreg.EnumKey(root_key, index)
+                        display = package.split("_")[0]
+                        if not display:
+                            continue
+                        apps.append(
+                            AppEntry(
+                                name=display,
+                                publisher="Microsoft Store",
+                                version="",
+                                install_location="",
+                                uninstall_string="",
+                                quiet_uninstall_string="",
+                                registry_key=f"{root}\\{package}",
+                                install_scope=scope,
+                                app_kind="windows-store",
+                                scanned_at=scanned_at,
+                            )
+                        )
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return apps
 
 
 def find_apps(query: str) -> list[AppEntry]:

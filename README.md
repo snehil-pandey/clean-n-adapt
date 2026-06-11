@@ -1,48 +1,26 @@
 # clean-n-adapt
 
-My Windows cleanup + maintenance CLI.
+Windows cleanup, app inventory, uninstall helper, and maintenance CLI.
 
-This started as a `clear cache.bat`, but the batch version was too blunt. This repo is the proper version: it keeps a SQLite index, has a real CLI, supports custom cleanup rules, and refuses sketchy deletes.
+I originally made this out of convenience as a small cache-clearing script when I was in 7th standard. I kept improving it over time as my own PCs changed, and now it has grown into a proper CLI tool with a database, safety checks, custom cleanup rules, app scans, reports, and a basic Rich menu UI.
 
-Repo:
+## Tags
 
-```text
-https://github.com/snehil-pandey/clean-n-adapt
-```
+`windows` `python` `cli` `rich` `sqlite` `cleanup` `maintenance` `pyinstaller` `system-utility`
 
-## What it does
+## Built with
 
-- dashboard/status for disk, memory, admin state, DB, scan age, and indexed cleanup size
-- quick/deep/mode-based cleaning
-- custom cleanup rules for folders, files, and glob patterns
-- app list/search/uninstall through official uninstall commands only
-- boost actions like DNS flush, Store reset, Disk Cleanup, power plan, and startup listing
-- monitor view for live disk/memory/cache state
-- history and report export
-- settings saved in SQLite
-
-Things intentionally not done:
-
-- no registry hive deletion
-- no raw event log file deletion
-- no random `Program Files` app deletion
-- no silent custom cleanup
+- Python
+- Rich
+- SQLite
+- PyInstaller
+- PowerShell and CMD install scripts
 
 ## Install
 
+Run the installer from an elevated terminal because it writes to `C:\Program Files`.
+
 PowerShell:
-
-```powershell
-git clone https://github.com/snehil-pandey/clean-n-adapt.git
-cd clean-n-adapt
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e .
-cna
-```
-
-If PowerShell blocks scripts:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
@@ -51,26 +29,50 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 CMD:
 
 ```bat
-git clone https://github.com/snehil-pandey/clean-n-adapt.git
-cd clean-n-adapt
 scripts\install.cmd
 ```
 
-## Build exe
+Installed files:
+
+```text
+C:\Program Files\cleanNadapt\
+```
+
+State/database folder:
+
+```text
+C:\Program Files\cleanNadapt\.state\
+```
+
+After install, open a new terminal:
+
+```powershell
+cna
+```
+
+## Build only
+
+PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-exe.ps1
+```
+
+CMD:
 
 ```bat
 scripts\build-exe.cmd
 ```
 
-Output:
+Build output:
 
 ```text
 dist\cna.exe
 ```
 
-## Main commands
+## Main usage
 
-Open the dashboard:
+Dashboard:
 
 ```powershell
 cna
@@ -79,16 +81,17 @@ cna status --compact
 cna status --json
 ```
 
-Open the basic Rich menu UI:
+Rich menu UI:
 
 ```powershell
 cna ui
 ```
 
-Scan and update the DB:
+Scan cache locations:
 
 ```powershell
 cna scan --refresh
+cna scan --refresh --include-admin
 ```
 
 Clean modes:
@@ -105,46 +108,38 @@ cna clean custom
 cna clean full
 ```
 
-Dry run:
+Dry-run cleanup:
 
 ```powershell
 cna clean quick --dry-run
 cna clean full --dry-run
 ```
 
-Old alias still works:
+Old compatibility command:
 
 ```powershell
+cna cache clear
 cna cache clear --dry-run
 ```
 
 ## Custom locations
 
-Add a folder rule:
+Add a folder:
 
 ```powershell
 cna custom add "D:\SomeApp\cache" --name "SomeApp cache" --category "App Cache" --recursive --risk caution
 ```
 
-Add a glob rule:
+Add a glob:
 
 ```powershell
 cna custom add "D:\Builds" --type glob --pattern "*.tmp" --category Dev --recursive --min-age-hours 24
 ```
 
-List/preview/clean:
-
-```powershell
-cna custom list
-cna custom preview
-cna custom preview 1
-cna custom clean --dry-run
-cna custom clean 1
-```
-
 Manage rules:
 
 ```powershell
+cna custom list
 cna custom show 1
 cna custom edit 1 --notes "Unreal build temp" --min-age-hours 168
 cna custom disable 1
@@ -152,25 +147,45 @@ cna custom enable 1
 cna custom remove 1
 ```
 
-Custom cleanup always previews and asks before deleting. `--yes` is not used for custom cleaning.
+Preview and clean:
 
-Safety checks block drive roots, Windows, Program Files, ProgramData root, and the user profile root. Important-looking paths like Desktop/Documents/repos need `--advanced`, and even then the tool still previews first.
+```powershell
+cna custom preview
+cna custom preview 1
+cna custom clean --dry-run
+cna custom clean 1
+```
+
+Custom cleanup always previews and asks before deleting.
 
 ## Apps
 
+App data is scanned once and stored in SQLite. Listing uses the cached DB. Run refresh when you want updated inventory.
+
 ```powershell
+cna apps scan --refresh
 cna apps list
+cna apps list --refresh
 cna apps list --query brave
 cna apps uninstall "Brave"
 cna apps uninstall "Brave" --dry-run
 ```
 
-Uninstall means official uninstall command or nothing. After an uninstall, the tool only previews known leftover-looking locations.
+Apps are grouped/sorted by:
 
-## Boost / monitor / history / reports
+- system apps
+- user apps
+- Windows Store style packages
+
+Uninstalling only launches official uninstall commands. If Windows does not provide one, clean-n-adapt refuses manual deletion.
+
+## Boost, monitor, history, reports
 
 ```powershell
-cna boost --dns --store --disk-cleanup
+cna boost --dns
+cna boost --store
+cna boost --disk-cleanup
+cna boost --high-performance
 cna boost --startup
 cna boost --all
 
@@ -189,21 +204,33 @@ cna settings list
 cna settings set cache_warning_bytes 1073741824
 ```
 
-DB location:
+## Supported commands
 
 ```text
-%LOCALAPPDATA%\clean-n-adapt\clean-n-adapt.db
+cna
+cna ui
+cna status [--compact] [--json] [--ttl-hours N]
+cna scan [--refresh] [--clear-db] [--include-admin] [--min-age-hours N]
+cna clean quick|deep|safe|browser|dev|gaming|windows|custom|full
+cna cache clear
+cna custom add|list|show|edit|enable|disable|remove|preview|clean
+cna apps scan|list|uninstall
+cna boost [--dns] [--store] [--disk-cleanup] [--high-performance] [--startup] [--all]
+cna monitor [--interval N] [--count N] [--compact] [--json] [--refresh-each]
+cna history [--limit N]
+cna report --format txt|json
+cna settings list|set
 ```
 
-Override DB/state folder:
+## Safety
 
-```powershell
-$env:CNA_STATE_DIR="D:\somewhere\state"
-```
-
-## Notes
-
+- Blocks dangerous roots like `C:\`, `C:\Windows`, `C:\Program Files`, and the user profile root.
+- Important-looking custom paths require `--advanced`.
 - Locked files are skipped.
 - Admin paths are skipped unless the shell is elevated.
-- Reports do not include file contents.
-- The CLI is scriptable; the `ui` command is just a friendlier menu over the same actions.
+- Custom cleanup never runs silently.
+- App uninstall uses official uninstall commands only.
+
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md).
