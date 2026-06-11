@@ -14,6 +14,10 @@ UNINSTALL_ROOTS = [
 ]
 
 
+def norm(value: str) -> str:
+    return " ".join(value.casefold().replace("(x64)", "").replace("(x86)", "").split())
+
+
 def read_value(key: winreg.HKEYType, name: str) -> str:
     try:
         value, _ = winreg.QueryValueEx(key, name)
@@ -59,7 +63,55 @@ def installed_apps() -> list[AppEntry]:
         except OSError:
             continue
     apps.extend(windows_store_apps(scanned_at))
-    return sorted(apps, key=lambda app: (app.install_scope, app.app_kind, app.name.casefold()))
+    return normalize_apps(apps)
+
+
+def app_identity(app: AppEntry) -> tuple[str, str, str]:
+    location = norm(app.install_location)
+    uninstall = norm(app.uninstall_string or app.quiet_uninstall_string)
+    publisher = norm(app.publisher)
+    if location or uninstall:
+        return norm(app.name), publisher, location or uninstall
+    return norm(app.name), publisher, app.app_kind
+
+
+def merge_app(existing: AppEntry, incoming: AppEntry) -> AppEntry:
+    existing.registry_key = merge_text(existing.registry_key, incoming.registry_key)
+    existing.install_scope = "system" if "system" in {existing.install_scope, incoming.install_scope} else existing.install_scope
+    existing.app_kind = merge_text(existing.app_kind, incoming.app_kind)
+    existing.publisher = existing.publisher or incoming.publisher
+    existing.version = existing.version or incoming.version
+    existing.install_location = existing.install_location or incoming.install_location
+    existing.uninstall_string = existing.uninstall_string or incoming.uninstall_string
+    existing.quiet_uninstall_string = existing.quiet_uninstall_string or incoming.quiet_uninstall_string
+    existing.scanned_at = max(existing.scanned_at, incoming.scanned_at)
+    return existing
+
+
+def merge_text(left: str, right: str) -> str:
+    values: list[str] = []
+    for value in [left, right]:
+        for part in str(value).split(" | "):
+            if part and part not in values:
+                values.append(part)
+    return " | ".join(values)
+
+
+def normalize_apps(apps: list[AppEntry]) -> list[AppEntry]:
+    merged: dict[tuple[str, str, str], AppEntry] = {}
+    fallback_by_name: dict[str, AppEntry] = {}
+    for app in apps:
+        key = app_identity(app)
+        name_key = norm(app.name)
+        if key in merged:
+            merge_app(merged[key], app)
+            continue
+        if not app.uninstall_string and not app.quiet_uninstall_string and name_key in fallback_by_name:
+            merge_app(fallback_by_name[name_key], app)
+            continue
+        merged[key] = app
+        fallback_by_name.setdefault(name_key, app)
+    return sorted(merged.values(), key=lambda app: (app.install_scope, app.app_kind, app.name.casefold()))
 
 
 def windows_store_apps(scanned_at: float) -> list[AppEntry]:

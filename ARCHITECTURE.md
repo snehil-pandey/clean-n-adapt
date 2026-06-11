@@ -5,6 +5,7 @@ clean-n-adapt is a Windows-first Python CLI. The CLI and the Rich menu UI call t
 ## Runtime Principles
 
 - Keep CLI and TUI behavior connected through the same command functions.
+- Keep installer/native Windows integration separate from the cleanup engine.
 - Store runtime state beside the executable by default.
 - Cache expensive scans in SQLite and refresh only when requested.
 - Prefer previews and official uninstall commands over blind deletion.
@@ -17,11 +18,30 @@ flowchart TD
     User["User"] --> Entry["cna / cna.exe"]
     Entry --> Parser["argparse command router"]
     Parser --> CLI["CLI commands"]
-    Parser --> TUI["Rich menu UI"]
+    Parser --> TUI["Rich dashboard/menu UI"]
     TUI --> CLI
     CLI --> Services["Scan, clean, apps, boost, monitor, reports"]
     Services --> DB["SQLite state DB"]
     Services --> Windows["Windows APIs / registry / filesystem"]
+```
+
+## Layered target shape
+
+```mermaid
+flowchart TD
+    CLI["CLI Layer"] --> Core["Core Engine"]
+    TUI["TUI Layer"] --> Core
+    Installer["Installer Layer"] --> Windows["Windows Integration"]
+    Core --> Cleanup["Cleanup"]
+    Core --> Apps["Apps"]
+    Core --> Monitor["Monitor"]
+    Core --> History["History"]
+    Core --> Permissions["Permissions"]
+    Core --> Health["Health"]
+    Windows --> Shortcuts["Start Menu / Desktop"]
+    Windows --> Path["PATH"]
+    Windows --> Terminal["Windows Terminal profile"]
+    Windows --> UAC["Admin manifest / UAC"]
 ```
 
 ## Install and runtime layout

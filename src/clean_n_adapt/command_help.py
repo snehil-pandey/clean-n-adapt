@@ -11,8 +11,9 @@ console = Console()
 
 
 COMMANDS = [
-    ("cna", "Show this home/help screen with quick status and common commands."),
+    ("cna", "Open the interactive Clean-n-Adapt dashboard."),
     ("cna ui", "Open the Rich menu UI. Menus clear the previous screen before drawing."),
+    ("cna tui", "Alias for the interactive dashboard."),
     ("cna status", "Show dashboard status: admin state, DB path, disk, memory, and indexed cleanup."),
     ("cna status --compact", "Print one-line status for quick checks or scripts."),
     ("cna status --json", "Print machine-readable status JSON."),
@@ -29,6 +30,8 @@ COMMANDS = [
     ("cna snapshot compare", "Compare the two latest snapshots."),
     ("cna schedule weekly|monthly", "Create a Windows Task Scheduler maintenance task."),
     ("cna restore-point", "Request a Windows restore point before risky maintenance."),
+    ("cna permissions", "Check admin, registry, PATH, scheduler, restore point, and terminal integration."),
+    ("cna permissions repair", "Show repair guidance for installer-owned integrations."),
     ("cna scan --refresh", "Refresh the cache/temp index using built-in known locations and bounded deep discovery."),
     ("cna scan --refresh --include-admin", "Also include admin-only locations such as Windows temp/update caches."),
     ("cna clean quick", "Clean safe indexed cache locations using the latest DB index."),
@@ -51,7 +54,8 @@ COMMANDS = [
     ("cna apps scan --refresh", "Refresh cached app inventory from registry and Store-style package keys."),
     ("cna apps list", "List cached app inventory, sorted by system/user/store type."),
     ("cna apps list --query NAME", "Search cached app inventory."),
-    ("cna apps uninstall NAME", "Launch the app's official uninstaller only; refuses manual deletion."),
+    ("cna apps uninstall", "Open interactive app selection and launch official uninstallers only."),
+    ("cna apps uninstall NAME", "Launch one app's official uninstaller only; refuses manual deletion."),
     ("cna boost --dns", "Run ipconfig /flushdns."),
     ("cna boost --store", "Run Windows Store cache reset."),
     ("cna boost --disk-cleanup", "Run Windows Disk Cleanup."),
@@ -83,6 +87,7 @@ def print_home() -> None:
     quick.add_column("Command", style="cyan")
     quick.add_column("Use")
     for command, use in [
+        ("cna", "Open dashboard"),
         ("cna ui", "Open interactive menu"),
         ("cna doctor", "Get recommendations"),
         ("cna health", "Show PC health score"),

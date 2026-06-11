@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
 
 from rich.console import Console
 from rich.prompt import Confirm, IntPrompt, Prompt
+from rich.table import Table
 
 from . import __version__
 from .apps import find_apps, installed_apps, uninstall_app
@@ -81,6 +84,67 @@ MODE_FILTERS = {
 }
 
 
+def choose_indices(total: int, prompt: str = "Select numbers, a for all, or Enter to cancel") -> set[int]:
+    if total <= 0:
+        return set()
+    raw = Prompt.ask(prompt, default="a").strip().casefold()
+    if raw in {"a", "all"}:
+        return set(range(total))
+    if not raw:
+        return set()
+    selected: set[int] = set()
+    for part in raw.replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            left, right = part.split("-", 1)
+            if left.strip().isdigit() and right.strip().isdigit():
+                start = max(1, int(left))
+                end = min(total, int(right))
+                selected.update(range(start - 1, end))
+            continue
+        if part.isdigit():
+            index = int(part)
+            if 1 <= index <= total:
+                selected.add(index - 1)
+    return selected
+
+
+def select_scan_items(items: list[ScanItem], title: str) -> list[ScanItem]:
+    table = Table(title=title)
+    table.add_column("#", justify="right", style="cyan")
+    table.add_column("Target")
+    table.add_column("Category")
+    table.add_column("Size", justify="right", style="green")
+    table.add_column("Path", overflow="fold")
+    for index, item in enumerate(items, 1):
+        table.add_row(str(index), item.name, item.category, human_size(item.bytes_total), str(item.path))
+    console.print(table)
+    selected = choose_indices(len(items))
+    return [item for index, item in enumerate(items) if index in selected]
+
+
+def select_apps(apps: list, title: str = "Select apps") -> list:
+    table = Table(title=title)
+    table.add_column("#", justify="right", style="cyan")
+    table.add_column("Name")
+    table.add_column("Publisher")
+    table.add_column("Type")
+    table.add_column("Can uninstall", justify="center")
+    for index, app in enumerate(apps, 1):
+        table.add_row(
+            str(index),
+            app.name,
+            app.publisher,
+            app.app_kind,
+            "yes" if app.uninstall_string or app.quiet_uninstall_string else "no",
+        )
+    console.print(table)
+    selected = choose_indices(len(apps), "Select app numbers, a for all, or Enter to cancel")
+    return [app for index, app in enumerate(apps) if index in selected]
+
+
 def mode_items(mode: str, args: argparse.Namespace) -> list[ScanItem]:
     if mode == "custom":
         return []
@@ -110,8 +174,23 @@ def record_clean_history(mode: str, status: str, items: list[ScanItem], removed:
 def cmd_dashboard(args: argparse.Namespace | None = None) -> int:
     ttl = None if args is None else getattr(args, "ttl_hours", None)
     snap = snapshot(max_age_hours=ttl)
+    score = health_score()
+    apps = load_app_inventory(max_age_hours=None)
+    startup_count = len(list_startup_entries())
     console.rule("[bold cyan]clean-n-adapt dashboard")
     console.print(f"Version: [bold]{__version__}[/bold]")
+    panel = Table(title="Clean-n-Adapt")
+    panel.add_column("Metric")
+    panel.add_column("Value", justify="right", style="green")
+    panel.add_row("Health Score", f"{score.total}/100")
+    panel.add_row("Junk Found", human_size(snap.indexed_bytes))
+    panel.add_row("Apps Installed", str(len(apps)))
+    panel.add_row("Startup Apps", str(startup_count))
+    panel.add_row("Admin", "yes" if is_admin() else "no")
+    console.print(panel)
+    console.print(f"[cyan]Storage[/cyan]       {bar(score.storage)} {score.storage}/100")
+    console.print(f"[cyan]Startup[/cyan]      {bar(score.startup)} {score.startup}/100")
+    console.print(f"[cyan]Cache Hygiene[/cyan] {bar(score.cache)} {score.cache}/100")
     print_snapshot(snap)
     items = load_scan(max_age_hours=ttl)
     if items:
@@ -119,6 +198,12 @@ def cmd_dashboard(args: argparse.Namespace | None = None) -> int:
     else:
         console.print("[yellow]No cache index yet. Run cna scan --refresh.[/yellow]")
     return 0
+
+
+def bar(value: int, width: int = 18) -> str:
+    value = max(0, min(100, value))
+    filled = round(width * value / 100)
+    return "#" * filled + "-" * (width - filled)
 
 
 def cmd_help(args: argparse.Namespace) -> int:
@@ -173,6 +258,14 @@ def clean_builtin_mode(args: argparse.Namespace, mode: str) -> int:
         add_history("clean", "dry-run", f"{mode} clean dry-run: {human_size(total)} planned", total, sum(item.files for item in items), 0)
         console.print("[yellow]Dry run only. Nothing deleted.[/yellow]")
         return 0
+    if not args.yes:
+        selected = select_scan_items(items, f"Review {mode.title()} Cleanup")
+        if not selected:
+            add_history("clean", "cancelled", f"{mode} clean cancelled before selection", total, 0, 0)
+            console.print("[yellow]Cancelled.[/yellow]")
+            return 1
+        items = selected
+        total = sum(item.bytes_total for item in items)
     if not args.yes and not Confirm.ask(f"Delete {human_size(total)} from indexed {mode} locations?", default=False):
         add_history("clean", "cancelled", f"{mode} clean cancelled", total, 0, 0)
         console.print("[yellow]Cancelled.[/yellow]")
@@ -415,6 +508,32 @@ def cmd_apps_scan(args: argparse.Namespace) -> int:
 
 def cmd_apps_uninstall(args: argparse.Namespace) -> int:
     cached = load_app_inventory(max_age_hours=None)
+    if not args.name:
+        apps = cached or installed_apps()
+        if not cached:
+            save_app_inventory(apps)
+        removable = [app for app in apps if app.uninstall_string or app.quiet_uninstall_string]
+        selected = select_apps(removable[: args.limit] if args.limit else removable, "Select Apps To Uninstall")
+        if not selected:
+            console.print("[yellow]Cancelled.[/yellow]")
+            return 1
+        console.print("[bold]Selected:[/bold]")
+        for app in selected:
+            console.print(f"- {app.name}")
+        if args.dry_run:
+            add_history("uninstall", "dry-run", f"would launch uninstallers for {len(selected)} apps")
+            console.print("[yellow]Dry run only. Nothing launched.[/yellow]")
+            return 0
+        if not args.yes and not Confirm.ask("Launch official uninstallers for selected apps?", default=False):
+            add_history("uninstall", "cancelled", "cancelled interactive uninstall")
+            return 1
+        failures = 0
+        for app in selected:
+            proc = uninstall_app(app, quiet=args.quiet)
+            failures += 0 if proc.returncode == 0 else 1
+            add_history("uninstall", "ok" if proc.returncode == 0 else "failed", f"{app.name} uninstaller exited {proc.returncode}")
+            console.print(f"[cyan]{app.name}[/cyan] uninstaller exited {proc.returncode}")
+        return 0 if failures == 0 else 1
     matches = [app for app in cached if args.name.casefold() in app.name.casefold()] if cached else find_apps(args.name)
     if not matches:
         console.print("[red]No matching installed app found.[/red]")
@@ -753,7 +872,43 @@ def cmd_restore_point(args: argparse.Namespace) -> int:
     return code
 
 
+def permission_rows() -> list[tuple[str, bool, str]]:
+    checks: list[tuple[str, bool, str]] = []
+    checks.append(("Administrator", is_admin(), "Needed for protected Windows locations and some boost actions."))
+    checks.append(("PATH launcher", bool(shutil.which("cna") or shutil.which("cna.cmd")), "Open a new terminal after install if missing."))
+    checks.append(("Task Scheduler", shutil.which("schtasks") is not None, "Needed for cna schedule."))
+    checks.append(("Power Plan Access", shutil.which("powercfg") is not None, "Needed for high-performance boost."))
+    checks.append(("Restore Point Command", shutil.which("powershell") is not None, "Restore point still requires system protection/admin."))
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"):
+            checks.append(("Registry Access", True, "Installed app inventory can read uninstall registry."))
+    except OSError as exc:
+        checks.append(("Registry Access", False, str(exc)))
+    terminal = env_path("LOCALAPPDATA") / "Microsoft" / "Windows Terminal" if env_path("LOCALAPPDATA") else Path()
+    checks.append(("Windows Terminal", terminal.exists(), "Profile fragment is installed by the installer when possible."))
+    return checks
+
+
+def cmd_permissions(args: argparse.Namespace) -> int:
+    if args.permissions_action == "repair":
+        console.print("[cyan]Repair is installer-owned. Run install.ps1 again from the release folder to recreate PATH, shortcuts, and terminal profile.[/cyan]")
+        add_history("permissions", "preview", "shown repair instructions")
+        return 0
+    table = Table(title="Permissions")
+    table.add_column("Check")
+    table.add_column("Status", justify="center")
+    table.add_column("Details")
+    for label, ok, detail in permission_rows():
+        table.add_row(label, "[green]OK[/green]" if ok else "[red]NO[/red]", detail)
+    console.print(table)
+    add_history("permissions", "ok", "checked permissions")
+    return 0
+
+
 def ui_loop(_: argparse.Namespace | None = None) -> int:
+    first_run_wizard()
     choices = [
         "Dashboard",
         "Doctor",
@@ -839,6 +994,27 @@ def ui_loop(_: argparse.Namespace | None = None) -> int:
             console.print("[yellow]Pick a listed number.[/yellow]")
 
 
+def first_run_wizard() -> None:
+    if get_setting("profile", ""):
+        return
+    console.clear()
+    print_menu("Welcome to Clean-n-Adapt", ["Casual User", "Gamer", "Developer", "Power User"])
+    pick = IntPrompt.ask("Choose cleanup profile", default=1)
+    profiles = {
+        1: ("casual", "12", str(1024**3)),
+        2: ("gamer", "6", str(2 * 1024**3)),
+        3: ("developer", "6", str(2 * 1024**3)),
+        4: ("power", "1", str(4 * 1024**3)),
+    }
+    profile, min_age, warning = profiles.get(pick, profiles[1])
+    set_setting("profile", profile)
+    set_setting("default_min_age_hours", min_age)
+    set_setting("cache_warning_bytes", warning)
+    add_history("settings", "ok", f"first-run profile: {profile}")
+    console.print(f"[green]Profile saved:[/green] {profile}")
+    Prompt.ask("Press Enter to continue", default="")
+
+
 def add_scan_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--include-admin", action="store_true", help="include known admin-only cache locations")
     parser.add_argument("--min-age-hours", type=float, default=12, help="only index/delete items older than this many hours")
@@ -884,6 +1060,7 @@ def build_parser() -> argparse.ArgumentParser:
     status.set_defaults(func=cmd_status)
 
     sub.add_parser("ui", help="open the Rich menu UI").set_defaults(func=ui_loop)
+    sub.add_parser("tui", help="open the interactive dashboard").set_defaults(func=ui_loop)
 
     scan = sub.add_parser("scan", help="scan known cache locations and update the SQLite index")
     scan.add_argument("--refresh", action="store_true")
@@ -954,11 +1131,12 @@ def build_parser() -> argparse.ArgumentParser:
     apps_list.add_argument("--ttl-hours", type=float, default=None, help="reuse app inventory only if newer than this")
     apps_list.set_defaults(func=cmd_apps_list)
     apps_uninstall = apps_sub.add_parser("uninstall")
-    apps_uninstall.add_argument("name")
+    apps_uninstall.add_argument("name", nargs="?")
     apps_uninstall.add_argument("--exact", action="store_true")
     apps_uninstall.add_argument("--quiet", action="store_true")
     apps_uninstall.add_argument("--dry-run", action="store_true")
     apps_uninstall.add_argument("--yes", action="store_true")
+    apps_uninstall.add_argument("--limit", type=int, default=80)
     apps_uninstall.set_defaults(func=cmd_apps_uninstall)
 
     boost = sub.add_parser("boost", help="run safe speed/maintenance actions")
@@ -1029,6 +1207,12 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--yes", action="store_true")
     restore.set_defaults(func=cmd_restore_point)
 
+    permissions = sub.add_parser("permissions", help="check admin and Windows integration permissions")
+    permissions_sub = permissions.add_subparsers(dest="permissions_action")
+    permissions_sub.add_parser("check").set_defaults(func=cmd_permissions)
+    permissions_sub.add_parser("repair").set_defaults(func=cmd_permissions)
+    permissions.set_defaults(func=cmd_permissions, permissions_action="check")
+
     monitor = sub.add_parser("monitor", help="watch status without cleaning anything")
     monitor.add_argument("--interval", type=int, default=10)
     monitor.add_argument("--count", type=int, default=0)
@@ -1062,9 +1246,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args_list = sys.argv[1:] if argv is None else argv
     if not args_list:
-        print_home()
-        print_command_reference(show_all=False)
-        return 0
+        return ui_loop()
     args = parser.parse_args(args_list)
     if not hasattr(args, "func"):
         parser.print_help()

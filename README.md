@@ -1,6 +1,6 @@
 # clean-n-adapt
 
-Windows cleanup, app inventory, uninstall helper, and maintenance CLI.
+Windows cleanup, app inventory, uninstall helper, maintenance CLI, and interactive dashboard.
 
 I made the first version as a small cache-clearing script for my own convenience back in 7th standard. It kept growing as my PCs changed, and it is now a proper Windows utility with a SQLite state DB, safe cleanup modes, custom rules, app inventory, reports, and a Rich-based CLI/TUI.
 
@@ -33,9 +33,15 @@ I made the first version as a small cache-clearing script for my own convenience
 
 ## Install
 
-Download the Windows ZIP from the release page and extract it. Use `v1.1.2` or newer for the fixed PATH installer. The ZIP already includes `cna.exe`; the installer does not rebuild from source.
+Download the Windows ZIP from the release page and extract it. Use `v1.2.0` or newer for the native-feeling installer and admin-aware EXE. The ZIP already includes `cna.exe`; the installer does not rebuild from source.
 
-By default, the extracted folder becomes the app folder. This avoids admin permission issues and keeps `.state` beside the executable.
+By default, the installer targets:
+
+```text
+C:\Program Files\cleanNadapt
+```
+
+If needed, it relaunches with UAC. The EXE is built with an administrator manifest, so protected Windows maintenance asks for elevation instead of failing later.
 
 PowerShell:
 
@@ -58,6 +64,16 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -InstallDir "D:\Tools\cle
 ```bat
 install.cmd "D:\Tools\clean-n-adapt"
 ```
+
+Installer integration:
+
+- Adds install folder to PATH.
+- Creates `cna.cmd`.
+- Creates `.state` beside the executable.
+- Creates a Start Menu shortcut.
+- Can create a Desktop shortcut with `-DesktopShortcut`.
+- Adds a Windows Terminal profile fragment when possible.
+- Registers an uninstall entry.
 
 The state database is stored relative to the executable:
 
@@ -116,6 +132,7 @@ Python import/package names cannot use hyphens, so the underscore package name i
 
 ```powershell
 cna
+cna tui
 cna help --all
 cna ui
 cna doctor
@@ -133,6 +150,7 @@ cna boost --startup
 | Command | What it does |
 | --- | --- |
 | `cna` | Shows the home screen and common commands. |
+| `cna tui` | Opens the interactive dashboard. |
 | `cna help` | Shows the command helper. |
 | `cna help --all` | Shows detailed command help. |
 | `cna ui` | Opens the Rich menu UI. |
@@ -141,6 +159,7 @@ cna boost --startup
 | `cna status --json` | Prints machine-readable status JSON. |
 | `cna doctor` | Prints rule-based recommendations. |
 | `cna health` | Shows an offline PC health score. |
+| `cna permissions` | Checks admin, PATH, registry, scheduler, restore point, and Windows Terminal integration. |
 
 ### Diagnose and Advise
 
@@ -235,8 +254,10 @@ App data is scanned once and stored in SQLite. Listing uses the cached DB until 
 | `cna apps list --query brave` | Searches cached app inventory. |
 | `cna apps uninstall "Brave"` | Launches the official uninstaller only. |
 | `cna apps uninstall "Brave" --dry-run` | Shows what would happen without launching. |
+| `cna apps uninstall` | Opens an interactive app picker. |
 
 Apps are sorted by system, user, and Windows Store style packages.
+Duplicate app identities are normalized so repeated registry/store entries collapse into one row when possible.
 
 ## Boost
 

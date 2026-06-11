@@ -8,7 +8,7 @@ if not exist ".venv" (
 
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 ".venv\Scripts\python.exe" -m pip install -e ".[build]"
-".venv\Scripts\pyinstaller.exe" --onefile --name cna --clean src\clean_n_adapt\__main__.py
+".venv\Scripts\pyinstaller.exe" --onefile --name cna --clean --uac-admin src\clean_n_adapt\__main__.py
 echo.
 echo Built dist\cna.exe
 echo Install with:
