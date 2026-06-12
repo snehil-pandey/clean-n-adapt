@@ -24,9 +24,27 @@ function New-Shortcut([string]$Path, [string]$Target, [string]$WorkingDirectory,
 }
 
 $SourceDir = $PSScriptRoot
-$SourceExe = Join-Path $SourceDir "cna.exe"
-if (-not (Test-Path -LiteralPath $SourceExe)) {
-    throw "cna.exe was not found beside install.ps1. Extract the release ZIP first, then run install.ps1 from that folder."
+$RepoRoot = Split-Path -Parent $SourceDir
+$SourceCandidates = @(
+    (Join-Path $SourceDir "cna.exe"),
+    (Join-Path $RepoRoot "dist\cna.exe"),
+    (Join-Path (Get-Location) "dist\cna.exe")
+)
+$SourceExe = $SourceCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $SourceExe) {
+    throw @"
+cna.exe was not found.
+
+Expected one of:
+  $($SourceCandidates -join "`n  ")
+
+Release ZIP layout:
+  install.ps1 beside cna.exe
+
+Repo/dev layout:
+  run scripts\build-exe.cmd first so dist\cna.exe exists,
+  then run scripts\install.cmd or scripts\install.ps1.
+"@
 }
 
 $NeedsAdmin = ($PathScope -eq "Machine") -or $InstallDir.StartsWith($env:ProgramFiles, [System.StringComparison]::OrdinalIgnoreCase)

@@ -33,7 +33,7 @@ I made the first version as a small cache-clearing script for my own convenience
 
 ## Install
 
-Download the Windows ZIP from the release page and extract it. Use `v1.2.1` or newer for the native-feeling installer and admin-aware EXE. The ZIP already includes `cna.exe`; the installer does not rebuild from source.
+Download the Windows ZIP from the release page and extract it. Use `v1.2.2` or newer for the native-feeling installer and admin-aware EXE. The ZIP already includes `cna.exe`; the installer does not rebuild from source.
 
 By default, the installer targets:
 
@@ -65,6 +65,13 @@ CMD:
 
 ```bat
 install.cmd
+```
+
+From a repo checkout, build first so `dist\cna.exe` exists:
+
+```bat
+scripts\build-exe.cmd
+scripts\install.cmd
 ```
 
 To install/copy into a custom folder:
