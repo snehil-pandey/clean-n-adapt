@@ -33,7 +33,7 @@ I made the first version as a small cache-clearing script for my own convenience
 
 ## Install
 
-Download the Windows ZIP from the release page and extract it. Use `v1.2.0` or newer for the native-feeling installer and admin-aware EXE. The ZIP already includes `cna.exe`; the installer does not rebuild from source.
+Download the Windows ZIP from the release page and extract it. Use `v1.2.1` or newer for the native-feeling installer and admin-aware EXE. The ZIP already includes `cna.exe`; the installer does not rebuild from source.
 
 By default, the installer targets:
 
@@ -42,6 +42,18 @@ C:\Program Files\cleanNadapt
 ```
 
 If needed, it relaunches with UAC. The EXE is built with an administrator manifest, so protected Windows maintenance asks for elevation instead of failing later.
+
+After install, this file should exist:
+
+```text
+C:\Program Files\cleanNadapt\cna.cmd
+```
+
+Direct check:
+
+```powershell
+& "C:\Program Files\cleanNadapt\cna.cmd" --version
+```
 
 PowerShell:
 

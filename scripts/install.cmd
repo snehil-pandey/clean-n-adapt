@@ -6,8 +6,10 @@ if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
 set "INSTALL_DIR=%~1"
 if "%INSTALL_DIR%"=="" (
+    echo Installing Clean-n-Adapt to C:\Program Files\cleanNadapt
     powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\install.ps1"
 ) else (
+    echo Installing Clean-n-Adapt to %INSTALL_DIR%
     powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\install.ps1" -InstallDir "%INSTALL_DIR%"
 )
 

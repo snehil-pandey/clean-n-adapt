@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clean-n-adapt"
-version = "1.2.0"
+version = "1.2.1"
 description = "Adaptive Windows cleanup, app uninstall, and PC boost CLI."
 readme = "README.md"
 requires-python = ">=3.11"
