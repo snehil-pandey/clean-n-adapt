@@ -1,13 +1,30 @@
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
-if (-not (Test-Path ".venv")) {
-    python -m venv .venv
+function Invoke-Step {
+    param([scriptblock]$Command)
+    & $Command
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
 }
 
-& .\.venv\Scripts\python.exe -m pip install --upgrade pip
-& .\.venv\Scripts\python.exe -m pip install -e ".[build]"
-& .\.venv\Scripts\pyinstaller.exe --onefile --name cna --clean --uac-admin src\clean_n_adapt\__main__.py
+if (-not (Test-Path ".venv")) {
+    Invoke-Step { python -m venv .venv }
+}
+
+Invoke-Step { & .\.venv\Scripts\python.exe -m pip install --upgrade pip }
+Invoke-Step { & .\.venv\Scripts\python.exe -m pip install -e ".[build]" }
+Invoke-Step { & .\.venv\Scripts\python.exe -m nuitka `
+    --standalone `
+    --onefile `
+    --windows-uac-admin `
+    --assume-yes-for-downloads `
+    --enable-plugin=pyside6 `
+    --output-filename=cna.exe `
+    --output-dir=dist `
+    --python-flag=-m `
+    src\clean_n_adapt }
 Write-Host ""
 Write-Host "Built dist\cna.exe" -ForegroundColor Green
 Write-Host "Install with:"

@@ -16,6 +16,7 @@ dist/
 *.spec
 *.manifest
 *.log
+nuitka-crash-report.xml
 release-package/
 clean-n-adapt-*.zip
 

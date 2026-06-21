@@ -1,128 +1,141 @@
 # clean-n-adapt
 
-Windows cleanup, app inventory, uninstall helper, maintenance CLI, and interactive dashboard.
-
-I made the first version as a small cache-clearing script for my own convenience back in 7th standard. It kept growing as my PCs changed, and it is now a proper Windows utility with a SQLite state DB, safe cleanup modes, custom rules, app inventory, reports, and a Rich-based CLI/TUI.
+Clean-n-Adapt is a Windows maintenance app I started as a small cache-clearing script for my own convenience back in 7th standard. It kept getting upgraded whenever my PC changed, and now it is becoming a proper desktop utility: clean UI first, safe cleanup engine underneath, and only a tiny command line surface for automation.
 
 ## Tags
 
-`windows` `python` `cli` `tui` `rich` `sqlite` `cleanup` `maintenance` `pyinstaller` `system-utility`
+`windows` `python` `pyside6` `qt` `nuitka` `inno-setup` `sqlite` `cleanup` `maintenance` `desktop-app`
 
-## Tech
+## What it does
 
-- Python
-- Rich
-- SQLite
-- PyInstaller
-- PowerShell
-- CMD/batch
+- Opens a desktop dashboard when `cna.exe` or `cna` is launched.
+- Shows PC status, cleanup estimate, app count, startup count, disk free, memory free, and DB path.
+- Gives clean widget-style actions for quick, browser, developer, gaming, Windows, and full cleanup previews.
+- Keeps scans cached in SQLite so the app does not need to rescan everything every time.
+- Tracks installed apps in a deduplicated inventory.
+- Runs safe boost actions like DNS flush, Store reset, Disk Cleanup, and power-plan switching.
+- Adds a `refresh` action that restarts `explorer.exe` and sends `Win + Ctrl + Shift + B`.
+- Keeps runtime state beside the app in `.state`.
 
-## Contents
+## Command Line
 
-- [Install](#install)
-- [Build](#build)
-- [Quick Start](#quick-start)
-- [Commands](#commands)
-- [Diagnose and Advise](#diagnose-and-advise)
-- [Custom Locations](#custom-locations)
-- [Apps](#apps)
-- [Boost](#boost)
-- [State and Storage](#state-and-storage)
-- [Safety](#safety)
-- [Architecture](#architecture)
+The CLI is intentionally small now. The normal experience is the desktop app.
+
+```powershell
+cna
+cna gui
+cna clean --dry-run
+cna clean --mode browser --dry-run
+cna clean --mode quick --yes
+cna boost
+cna boost dns
+cna boost store
+cna boost disk
+cna boost power
+cna refresh
+cna --version
+```
+
+Allowed command groups:
+
+| Command | Purpose |
+| --- | --- |
+| `cna` | Opens the desktop app. |
+| `cna gui` | Opens the desktop app explicitly. |
+| `cna clean` | Previews or runs cleanup. |
+| `cna boost` | Runs Windows maintenance boost actions. |
+| `cna refresh` | Restarts Explorer and triggers graphics-driver refresh hotkey. |
+
+Cleanup modes:
+
+```powershell
+cna clean --mode quick --dry-run
+cna clean --mode safe --dry-run
+cna clean --mode browser --dry-run
+cna clean --mode dev --dry-run
+cna clean --mode gaming --dry-run
+cna clean --mode windows --dry-run
+cna clean --mode full --dry-run
+```
+
+Deletion requires `--yes`. Without `--yes`, cleanup stays in preview mode.
+
+## Desktop UI
+
+The desktop app is built with PySide6/Qt. It is meant to feel like a small professional Windows utility, not a terminal wrapped in a window.
+
+Main areas:
+
+| Screen | Details |
+| --- | --- |
+| Dashboard | Health, junk estimate, apps, startup, disk, memory, DB location. |
+| Clean | Widget buttons for safe cleanup modes. |
+| Boost | DNS, Store, Disk Cleanup, power plan, safe boost set. |
+| Apps | Cached installed-app inventory. |
+| Monitor | Current disk, memory, indexed cleanup, Downloads summary. |
+| Settings | Install path, download location, PATH scope, shortcut preference. |
+
+There is also a tray menu for quick preview, shell refresh, and opening the dashboard.
+
+## Refresh
+
+`cna refresh` does two things:
+
+1. Restarts `explorer.exe`.
+2. Sends the Windows graphics reset shortcut: `Win + Ctrl + Shift + B`.
+
+This is useful when the shell, taskbar, display driver, or desktop UI feels stuck.
+
+## Boost
+
+Boost does not magically overclock the PC. It only wraps safe Windows maintenance actions:
+
+| Action | What happens |
+| --- | --- |
+| `dns` | Runs `ipconfig /flushdns`. |
+| `store` | Runs `wsreset.exe`. |
+| `disk` | Launches Windows Disk Cleanup. |
+| `power` | Switches to the high-performance power plan when available. |
+| `all` | Runs DNS flush, Store reset, and Disk Cleanup. |
 
 ## Install
 
-Download the Windows ZIP from the release page and extract it. Use `v1.2.2` or newer for the native-feeling installer and admin-aware EXE. The ZIP already includes `cna.exe`; the installer does not rebuild from source.
+The release should provide either a setup EXE or a ZIP package.
 
-By default, the installer targets:
-
-```text
-C:\Program Files\cleanNadapt
-```
-
-If needed, it relaunches with UAC. The EXE is built with an administrator manifest, so protected Windows maintenance asks for elevation instead of failing later.
-
-After install, this file should exist:
+Preferred installer:
 
 ```text
-C:\Program Files\cleanNadapt\cna.cmd
+Clean-n-Adapt-Setup-2.0.0.exe
 ```
 
-Direct check:
+The installer is designed to:
 
-```powershell
-& "C:\Program Files\cleanNadapt\cna.cmd" --version
-```
+- Ask for UAC/admin access.
+- Let the user choose the install folder.
+- Install into `C:\Program Files\cleanNadapt` by default.
+- Create `.state` inside the install folder.
+- Add Clean-n-Adapt to PATH.
+- Register App Paths for `cna.exe`.
+- Create Start Menu shortcuts.
+- Optionally create a Desktop shortcut.
+- Launch the app after setup.
 
-PowerShell:
+ZIP/dev install still works when needed:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-CMD:
-
-```bat
-install.cmd
-```
-
-From a repo checkout, build first so `dist\cna.exe` exists:
+From a repo checkout, build first:
 
 ```bat
 scripts\build-exe.cmd
 scripts\install.cmd
 ```
 
-To install/copy into a custom folder:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -InstallDir "D:\Tools\clean-n-adapt"
-```
-
-```bat
-install.cmd "D:\Tools\clean-n-adapt"
-```
-
-Installer integration:
-
-- Adds install folder to PATH.
-- Creates `cna.cmd`.
-- Creates `.state` beside the executable.
-- Creates a Start Menu shortcut.
-- Can create a Desktop shortcut with `-DesktopShortcut`.
-- Adds a Windows Terminal profile fragment when possible.
-- Registers an uninstall entry.
-
-The state database is stored relative to the executable:
-
-```text
-<install folder>\.state\clean-n-adapt.db
-```
-
-If the folder is moved, the app keeps using `.state` beside `cna.exe`. To override this manually:
-
-```powershell
-$env:CNA_STATE_DIR="D:\somewhere\clean-n-adapt-state"
-```
-
-If `cna` is not found after installing, add the install folder to PATH:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\add-to-path.ps1
-```
-
-```bat
-add-to-path.cmd
-```
-
-Already-open terminals may not pick up PATH changes. Open a new terminal, or run the launcher directly:
-
-```powershell
-.\cna.cmd --version
-```
-
 ## Build
+
+PyInstaller is no longer used. The app is built with Nuitka.
 
 PowerShell:
 
@@ -136,195 +149,42 @@ CMD:
 scripts\build-exe.cmd
 ```
 
-Build output:
+Output:
 
 ```text
 dist\cna.exe
 ```
 
-## Source Layout
-
-The repo is named `clean-n-adapt`, but the Python package is `clean_n_adapt` inside `src/`.
-Python import/package names cannot use hyphens, so the underscore package name is intentional.
-
-## Quick Start
-
-```powershell
-cna
-cna tui
-cna help --all
-cna ui
-cna doctor
-cna health
-cna scan --refresh
-cna clean quick --dry-run
-cna apps scan --refresh
-cna boost --startup
-```
-
-## Commands
-
-### Help and Status
-
-| Command | What it does |
-| --- | --- |
-| `cna` | Shows the home screen and common commands. |
-| `cna tui` | Opens the interactive dashboard. |
-| `cna help` | Shows the command helper. |
-| `cna help --all` | Shows detailed command help. |
-| `cna ui` | Opens the Rich menu UI. |
-| `cna status` | Shows dashboard status. |
-| `cna status --compact` | Prints one-line status. |
-| `cna status --json` | Prints machine-readable status JSON. |
-| `cna doctor` | Prints rule-based recommendations. |
-| `cna health` | Shows an offline PC health score. |
-| `cna permissions` | Checks admin, PATH, registry, scheduler, restore point, and Windows Terminal integration. |
-
-### Diagnose and Advise
-
-| Command | What it does |
-| --- | --- |
-| `cna doctor` | Analyzes cache index, disk space, startup entries, and app inventory, then recommends commands. |
-| `cna health` | Shows total health score plus storage, startup, cache, maintenance, and app scores. |
-| `cna startup` | Lists registry startup entries with estimated impact. |
-| `cna startup disable NAME --yes` | Disables one matched startup entry. Previewed without `--yes`. |
-| `cna storage top C:\` | Shows largest folders under a path and records a storage sample. |
-| `cna storage history` | Shows recorded free-space history. |
-| `cna browsers` | Shows browser cache usage from the cache index. |
-| `cna downloads audit` | Audits old archives, installers, images, and duplicate names in Downloads. |
-| `cna duplicates scan PATH` | Finds duplicate files by size and SHA-256 hash. Preview only in v1.1. |
-| `cna snapshot create` | Saves apps, startup entries, and cache index snapshot. |
-| `cna snapshot compare` | Compares the two latest snapshots. |
-| `cna schedule weekly` | Creates/updates a Windows Task Scheduler maintenance task. |
-| `cna restore-point` | Requests a Windows restore point before risky maintenance. |
-
-`cna doctor` is not an LLM. It is an offline rule engine. Example advice:
+Installer script:
 
 ```text
-Browser cache is large -> cna clean browser --dry-run
-Startup impact looks high -> cna startup
-Disk free space is low -> cna storage top C:\
+scripts\clean-n-adapt.iss
 ```
 
-### Scan and Clean
-
-| Command | What it does |
-| --- | --- |
-| `cna scan --refresh` | Refreshes the built-in cache/temp index. |
-| `cna scan --refresh --include-admin` | Includes admin-only Windows cache locations when elevated. |
-| `cna clean quick` | Cleans safe indexed locations. |
-| `cna clean quick --dry-run` | Previews quick clean without deleting. |
-| `cna clean deep` | Uses deeper indexed categories with extra caution. |
-| `cna clean browser` | Cleans browser caches only. |
-| `cna clean dev` | Cleans developer caches only. |
-| `cna clean gaming` | Cleans game/shader/launcher caches only. |
-| `cna clean windows` | Cleans Windows cache/temp entries. |
-| `cna clean custom` | Cleans enabled custom rules after preview. |
-| `cna clean full` | Runs all built-in modes and custom rules. |
-| `cna cache clear` | Compatibility alias for safe clean. |
-
-The built-in scan checks obvious Windows/browser temp locations and bounded deep discovery up to 10 directories deep under common AppData, ProgramData, and project roots. It searches cache-like folders such as `Cache`, `Code Cache`, `GPUCache`, `ShaderCache`, `LocalCache`, `TempState`, `.cache`, `.pytest_cache`, and `__pycache__`.
-
-## Custom Locations
-
-Add a folder:
-
-```powershell
-cna custom add "D:\SomeApp\cache" --name "SomeApp cache" --category "App Cache" --recursive --risk caution
-```
-
-Add a glob:
-
-```powershell
-cna custom add "D:\Builds" --type glob --pattern "*.tmp" --category Dev --recursive --min-age-hours 24
-```
-
-Manage rules:
-
-```powershell
-cna custom list
-cna custom show 1
-cna custom edit 1 --notes "Unreal build temp" --min-age-hours 168
-cna custom disable 1
-cna custom enable 1
-cna custom remove 1
-```
-
-Preview and clean:
-
-```powershell
-cna custom preview
-cna custom preview 1
-cna custom clean --dry-run
-cna custom clean 1
-```
-
-Custom cleanup always previews and asks before deleting.
-
-## Apps
-
-App data is scanned once and stored in SQLite. Listing uses the cached DB until refresh is requested.
-
-| Command | What it does |
-| --- | --- |
-| `cna apps scan --refresh` | Refreshes cached app inventory. |
-| `cna apps list` | Lists cached apps. |
-| `cna apps list --refresh` | Refreshes inventory before listing. |
-| `cna apps list --query brave` | Searches cached app inventory. |
-| `cna apps uninstall "Brave"` | Launches the official uninstaller only. |
-| `cna apps uninstall "Brave" --dry-run` | Shows what would happen without launching. |
-| `cna apps uninstall` | Opens an interactive app picker. |
-
-Apps are sorted by system, user, and Windows Store style packages.
-Duplicate app identities are normalized so repeated registry/store entries collapse into one row when possible.
-
-## Boost
-
-| Command | What it does |
-| --- | --- |
-| `cna boost --dns` | Runs `ipconfig /flushdns`. |
-| `cna boost --store` | Resets Microsoft Store cache. |
-| `cna boost --disk-cleanup` | Runs Windows Disk Cleanup. |
-| `cna boost --high-performance` | Switches to high-performance power plan. |
-| `cna boost --startup` | Lists startup registry entries only. |
-| `cna boost --all` | Runs the safe boost set: DNS, Store reset, Disk Cleanup. |
-
-## Monitor, History, and Reports
-
-```powershell
-cna monitor --compact --interval 5 --count 6
-cna monitor --refresh-each --interval 60
-cna history
-cna report --format txt
-cna report --format json
-```
-
-## Settings
-
-```powershell
-cna settings list
-cna settings set cache_warning_bytes 1073741824
-```
-
-## State and Storage
-
-clean-n-adapt stores runtime data in SQLite:
+Compile it with Inno Setup to create:
 
 ```text
-<app folder>\.state\clean-n-adapt.db
+installer\Clean-n-Adapt-Setup-2.0.0.exe
 ```
 
-The database stores scan results, app inventory, settings, custom rules, history, and cleanup results. It does not store file contents.
+## State
+
+Runtime state is stored beside the installed executable:
+
+```text
+<install folder>\.state\clean-n-adapt.db
+```
+
+That database stores scan results, app inventory, settings, history, and cleanup results. It does not store file contents.
 
 ## Safety
 
-- Blocks dangerous roots like `C:\`, `C:\Windows`, `C:\Program Files`, and the user profile root.
-- Important-looking custom paths require `--advanced`.
-- Locked files are skipped.
-- Admin paths are skipped unless the shell is elevated.
-- Custom cleanup never runs silently.
-- App uninstall uses official uninstall commands only.
-- Deep discovery is bounded and skips runtime/tool/virtual environment folders.
+- Cleanup previews by default.
+- Actual deletion requires explicit confirmation through the UI or `--yes` in CLI automation.
+- Admin-only paths are skipped unless the app is elevated.
+- App removal remains official-uninstaller-only.
+- Scan/index data is cached and refreshed intentionally.
+- Dangerous roots and important system folders are blocked by the cleanup engine.
 
 ## Architecture
 
