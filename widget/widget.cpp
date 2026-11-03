@@ -684,12 +684,61 @@ static void paint_popup_header(HWND h, const std::wstring& title, const std::wst
   logo(g, RectF((REAL)SI(16), (REAL)SI(16), (REAL)SI(28), (REAL)SI(28)));
   txt(g, title, fTitle, RectF((REAL)SI(54), (REAL)SI(12), (REAL)max(0, rc.right - SI(190)), (REAL)SI(24)), T.text);
   txt(g, subtitle, fSmall, RectF((REAL)SI(54), (REAL)SI(37), (REAL)max(0, rc.right - SI(76)), (REAL)SI(18)), T.sub);
+  Pen border(T.border, 1.0f);
+  g.DrawLine(&border, 0, SI(64), rc.right, SI(64));
+  g.DrawLine(&border, 0, max(SI(64), rc.bottom - SI(54)), rc.right, max(SI(64), rc.bottom - SI(54)));
   EndPaint(h, &ps);
 }
 
 enum { RV_LIST = 200, RV_ALL, RV_NONE, RV_INSPECT, RV_STAGE, RV_CLOSE, RV_SUMMARY, RV_HINT };
 enum { RP_EDIT = 300, RP_COPY, RP_CLOSE, RP_SUMMARY };
 enum { PP_BODY = 400, PP_CANCEL, PP_ACCEPT };
+
+static bool popup_primary(UINT id) { return id == RV_STAGE || id == RP_CLOSE || id == PP_ACCEPT; }
+
+static LRESULT draw_popup_button(const DRAWITEMSTRUCT* d) {
+  wchar_t label[128]{};
+  GetWindowTextW(d->hwndItem, label, 128);
+  bool disabled = (d->itemState & ODS_DISABLED) != 0;
+  bool down = (d->itemState & ODS_SELECTED) != 0;
+  bool hot = (d->itemState & ODS_HOTLIGHT) != 0;
+  bool primary = popup_primary(d->CtlID);
+  Color fill, text;
+  Color border = T.border;
+  const Color* edge = primary ? nullptr : &border;
+  if (primary) {
+    fill = disabled ? T.track : down ? mix(T.accent, Color(255, 0, 0, 0), 0.15f) : hot ? T.accentH : T.accent;
+    text = disabled ? T.sub : T.accentText;
+  } else {
+    fill = disabled ? T.track : down ? T.btnP : hot ? T.btnH : T.btn;
+    text = disabled ? T.sub : T.text;
+  }
+  Graphics g(d->hDC);
+  g.SetSmoothingMode(SmoothingModeAntiAlias);
+  Rect rc = d->rcItem;
+  box(g, RectF((REAL)rc.left + 0.5f, (REAL)rc.top + 0.5f, (REAL)(rc.right - rc.left) - 1.0f, (REAL)(rc.bottom - rc.top) - 1.0f), SF(5), fill, edge);
+  txt(g, label, primary ? fBold : fBody, RectF((REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top)), text, StringAlignmentCenter);
+  return TRUE;
+}
+
+static LRESULT popup_hit_test(HWND h, LPARAM l, bool resizable) {
+  POINT p{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+  ScreenToClient(h, &p);
+  RECT r; GetClientRect(h, &r);
+  int edge = SI(6);
+  if (resizable) {
+    bool left = p.x < edge, right = p.x >= r.right - edge, top = p.y < edge, bottom = p.y >= r.bottom - edge;
+    if (top && left) return HTTOPLEFT;
+    if (top && right) return HTTOPRIGHT;
+    if (bottom && left) return HTBOTTOMLEFT;
+    if (bottom && right) return HTBOTTOMRIGHT;
+    if (left) return HTLEFT;
+    if (right) return HTRIGHT;
+    if (top) return HTTOP;
+    if (bottom) return HTBOTTOM;
+  }
+  return p.y < SI(64) ? HTCAPTION : HTCLIENT;
+}
 
 static void report_resize(HWND h) {
   RECT r; GetClientRect(h, &r);
@@ -709,7 +758,7 @@ static void show_report_window(const std::string& report) {
     return;
   }
   g_reportWnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"CnaReportWnd", L"Clean-n-Adapt | Report",
-      WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(880), SI(620), g_hwnd, nullptr, g_inst, nullptr);
+      WS_POPUP | WS_THICKFRAME | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(880), SI(620), g_hwnd, nullptr, g_inst, nullptr);
   if (!g_reportWnd) set_status(L"Could not open the report window", true);
 }
 
@@ -728,9 +777,9 @@ static LRESULT CALLBACK PromptWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       apply_popup_chrome(h);
       HWND body = CreateWindowW(L"STATIC", g_prompt.body.c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT,
           0, 0, 0, 0, h, (HMENU)PP_BODY, g_inst, nullptr);
-      CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+      CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
           0, 0, 0, 0, h, (HMENU)PP_CANCEL, g_inst, nullptr);
-      CreateWindowW(L"BUTTON", g_prompt.action.c_str(), WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+      CreateWindowW(L"BUTTON", g_prompt.action.c_str(), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
           0, 0, 0, 0, h, (HMENU)PP_ACCEPT, g_inst, nullptr);
       set_popup_font(body, g_uiFont);
       set_popup_font(GetDlgItem(h, PP_CANCEL));
@@ -740,11 +789,11 @@ static LRESULT CALLBACK PromptWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_ERASEBKGND: return 1;
     case WM_PAINT: paint_popup_header(h, g_prompt.title, L"This action stays local and follows Clean-n-Adapt safety rules."); return 0;
+    case WM_NCHITTEST: return popup_hit_test(h, l, false);
     case WM_SIZE: prompt_resize(h); return 0;
+    case WM_DRAWITEM: return draw_popup_button((DRAWITEMSTRUCT*)l);
     case WM_CTLCOLORSTATIC:
-      SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
-    case WM_CTLCOLORBTN:
-      SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
+      SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.card)); return (LRESULT)g_popupCardBrush;
     case WM_COMMAND:
       if (LOWORD(w) == PP_ACCEPT) { Prompt p = g_prompt; DestroyWindow(h); if (p.kind != K_NONE) start_job(p.kind, p.args, p.busy); return 0; }
       if (LOWORD(w) == PP_CANCEL) { DestroyWindow(h); return 0; }
@@ -764,7 +813,7 @@ static void show_prompt(const std::wstring& title, const std::wstring& body, con
     SetForegroundWindow(g_promptWnd); InvalidateRect(g_promptWnd, nullptr, TRUE); return;
   }
   g_promptWnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"CnaPromptWnd", L"Clean-n-Adapt | Confirm",
-      WS_CAPTION | WS_SYSMENU | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(480), SI(250), g_hwnd, nullptr, g_inst, nullptr);
+      WS_POPUP | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(480), SI(250), g_hwnd, nullptr, g_inst, nullptr);
   if (!g_promptWnd) set_status(L"Could not open the confirmation window", true);
 }
 
@@ -850,11 +899,11 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         ListView_SetCheckState(g_reviewList, (int)i, row.selected && row.eligible);
         if (!row.eligible) ListView_SetItemState(g_reviewList, (int)i, LVIS_CUT, LVIS_CUT);
       }
-      CreateWindowW(L"BUTTON", L"Select all", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_ALL, g_inst, nullptr);
-      CreateWindowW(L"BUTTON", L"Clear all", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_NONE, g_inst, nullptr);
-      CreateWindowW(L"BUTTON", L"Inspect", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_INSPECT, g_inst, nullptr);
-      CreateWindowW(L"BUTTON", L"Stage quarantine", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_STAGE, g_inst, nullptr);
-      CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_CLOSE, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Select all", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_ALL, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Clear all", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_NONE, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Inspect", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_INSPECT, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Stage quarantine", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_STAGE, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_CLOSE, g_inst, nullptr);
       HWND summary = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, h, (HMENU)RV_SUMMARY, g_inst, nullptr);
       set_popup_font(summary, g_uiBoldFont);
       for (int id : {RV_ALL, RV_NONE, RV_INSPECT, RV_STAGE, RV_CLOSE}) set_popup_font(GetDlgItem(h, id), id == RV_STAGE ? g_uiBoldFont : g_uiFont);
@@ -866,7 +915,9 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_PAINT:
       paint_popup_header(h, L"Review cleanup candidates", L"Select eligible items, inspect the evidence, then stage a reversible quarantine.");
       return 0;
+    case WM_NCHITTEST: return popup_hit_test(h, l, true);
     case WM_SIZE: review_resize(h); return 0;
+    case WM_DRAWITEM: return draw_popup_button((DRAWITEMSTRUCT*)l);
     case WM_NOTIFY: {
       NMHDR* n = (NMHDR*)l;
       if (n->idFrom == RV_LIST) {
@@ -886,8 +937,6 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_CTLCOLORSTATIC:
       SetTextColor((HDC)w, CR(T.sub)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
-    case WM_CTLCOLORBTN:
-      SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
     case WM_COMMAND:
       switch (LOWORD(w)) {
         case RV_ALL:
@@ -922,8 +971,8 @@ static LRESULT CALLBACK ReportWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       set_popup_font(g_reportEdit, g_uiFont);
       HWND summary = CreateWindowW(L"STATIC", L"Read-only report · use Copy to share it", WS_CHILD | WS_VISIBLE | SS_LEFT,
           0, 0, 0, 0, h, (HMENU)RP_SUMMARY, g_inst, nullptr);
-      CreateWindowW(L"BUTTON", L"Copy", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RP_COPY, g_inst, nullptr);
-      CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RP_CLOSE, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Copy", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RP_COPY, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RP_CLOSE, g_inst, nullptr);
       set_popup_font(summary, g_uiSmallFont);
       set_popup_font(GetDlgItem(h, RP_COPY));
       set_popup_font(GetDlgItem(h, RP_CLOSE), g_uiBoldFont);
@@ -934,13 +983,13 @@ static LRESULT CALLBACK ReportWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_PAINT:
       paint_popup_header(h, L"Report", L"A complete local record of the most recent command. No files are created.");
       return 0;
+    case WM_NCHITTEST: return popup_hit_test(h, l, true);
     case WM_SIZE: report_resize(h); return 0;
+    case WM_DRAWITEM: return draw_popup_button((DRAWITEMSTRUCT*)l);
     case WM_CTLCOLOREDIT:
       SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.card)); return (LRESULT)g_popupCardBrush;
     case WM_CTLCOLORSTATIC:
       SetTextColor((HDC)w, CR(T.sub)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
-    case WM_CTLCOLORBTN:
-      SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
     case WM_COMMAND:
       if (LOWORD(w) == RP_COPY) { SendMessageW(g_reportEdit, EM_SETSEL, 0, -1); SendMessageW(g_reportEdit, WM_COPY, 0, 0); SetWindowTextW(GetDlgItem(h, RP_SUMMARY), L"Report copied to the clipboard"); return 0; }
       if (LOWORD(w) == RP_CLOSE) { DestroyWindow(h); return 0; }
@@ -954,7 +1003,7 @@ static void show_review_window() {
   if (g_reviewItems.empty()) return;
   if (g_reviewWnd) { SetForegroundWindow(g_reviewWnd); return; }
   g_reviewWnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"CnaReviewWnd", L"Clean-n-Adapt review",
-      WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(1100), SI(680), g_hwnd, nullptr, g_inst, nullptr);
+      WS_POPUP | WS_THICKFRAME | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(1100), SI(680), g_hwnd, nullptr, g_inst, nullptr);
   if (!g_reviewWnd) set_status(L"Could not open the review window", true);
 }
 

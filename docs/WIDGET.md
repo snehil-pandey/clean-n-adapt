@@ -79,7 +79,7 @@ If Explorer restarts, the tray icon is restored automatically. Windows may place
 
 ## Look and feel
 
-* The widget, review window, reports, and confirmation prompts follow the system **light/dark** mode and **accent colour**, switching live; rounded corners, thin border and shadow on Windows 11 (on older Windows the same card is drawn square).
+* The widget, review window, reports, and confirmation prompts use the same custom-drawn header and controls, and follow the system **light/dark** mode and **accent colour**, switching live. Review and report windows remain draggable and resizable without reverting to stock dialog chrome.
 * Per-monitor DPI aware; moving between monitors rescales.
 * Segoe UI Variable / Segoe Fluent Icons when present, with fallbacks. A light layered translucency keeps the widget visually separate without reducing readability.
 

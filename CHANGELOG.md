@@ -6,6 +6,17 @@ All notable changes to Clean-n-Adapt are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-11-03
+
+### Changed
+- Removed stock title bars and system-styled action buttons from the widget's
+  report, review, and confirmation surfaces. They now use the widget's own
+  draggable header, card styling, typography, accent-aware owner-drawn
+  controls, and native resize hit zones.
+
+- Kept reports and review lists resizable without exposing a separate Windows
+  dialog chrome, so they behave like expanded views of the widget.
+
 ## [3.0.1] - 2026-11-03
 
 ### Changed
