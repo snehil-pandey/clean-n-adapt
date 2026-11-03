@@ -23,6 +23,10 @@ All notable changes to Clean-n-Adapt are documented here. The format follows
   post-uninstall leftover audits.
 
 ### Fixed
+- Popup frames are now painted by the widget itself rather than relying on
+  optional DWM borders. Report, review, and confirmation windows therefore
+  retain the same visible boundary, close control, focus treatment, and
+  light/dark appearance across Windows themes.
 - App-data roots containing credentials, keys, wallets, or save data are
   protected even when the root itself is named only after the application.
 - App-specific audits skip Windows 11 system/shared directories, cloud-only

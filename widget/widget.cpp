@@ -681,8 +681,10 @@ static void paint_popup_header(HWND h, const std::wstring& title, const std::wst
   g.SetSmoothingMode(SmoothingModeAntiAlias);
   g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
   g.Clear(T.bg);
+  Pen frame(T.border, 1.0f);
+  g.DrawRectangle(&frame, 0.5f, 0.5f, (REAL)max(0, rc.right - 1), (REAL)max(0, rc.bottom - 1));
   logo(g, RectF((REAL)SI(16), (REAL)SI(16), (REAL)SI(28), (REAL)SI(28)));
-  txt(g, title, fTitle, RectF((REAL)SI(54), (REAL)SI(12), (REAL)max(0, rc.right - SI(190)), (REAL)SI(24)), T.text);
+  txt(g, title, fTitle, RectF((REAL)SI(54), (REAL)SI(12), (REAL)max(0, rc.right - SI(122)), (REAL)SI(24)), T.text);
   txt(g, subtitle, fSmall, RectF((REAL)SI(54), (REAL)SI(37), (REAL)max(0, rc.right - SI(76)), (REAL)SI(18)), T.sub);
   Pen border(T.border, 1.0f);
   g.DrawLine(&border, 0, SI(64), rc.right, SI(64));
@@ -693,8 +695,26 @@ static void paint_popup_header(HWND h, const std::wstring& title, const std::wst
 enum { RV_LIST = 200, RV_ALL, RV_NONE, RV_INSPECT, RV_STAGE, RV_CLOSE, RV_SUMMARY, RV_HINT };
 enum { RP_EDIT = 300, RP_COPY, RP_CLOSE, RP_SUMMARY };
 enum { PP_BODY = 400, PP_CANCEL, PP_ACCEPT };
+enum { PC_CLOSE = 480 };
 
 static bool popup_primary(UINT id) { return id == RV_STAGE || id == RP_CLOSE || id == PP_ACCEPT; }
+
+static RECT popup_close_rect(HWND h) {
+  RECT rc; GetClientRect(h, &rc);
+  return RECT{rc.right - SI(44), SI(12), rc.right - SI(16), SI(40)};
+}
+
+static void popup_layout_chrome(HWND h) {
+  RECT r = popup_close_rect(h);
+  MoveWindow(GetDlgItem(h, PC_CLOSE), r.left, r.top, r.right - r.left, r.bottom - r.top, TRUE);
+}
+
+static void create_popup_close(HWND h) {
+  CreateWindowW(L"BUTTON", L"\u00d7", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+      0, 0, 0, 0, h, (HMENU)PC_CLOSE, g_inst, nullptr);
+  set_popup_font(GetDlgItem(h, PC_CLOSE), g_uiFont);
+  popup_layout_chrome(h);
+}
 
 static LRESULT draw_popup_button(const DRAWITEMSTRUCT* d) {
   wchar_t label[128]{};
@@ -702,6 +722,16 @@ static LRESULT draw_popup_button(const DRAWITEMSTRUCT* d) {
   bool disabled = (d->itemState & ODS_DISABLED) != 0;
   bool down = (d->itemState & ODS_SELECTED) != 0;
   bool hot = (d->itemState & ODS_HOTLIGHT) != 0;
+  if (d->CtlID == PC_CLOSE) {
+    Graphics g(d->hDC);
+    g.SetSmoothingMode(SmoothingModeAntiAlias);
+    ::RECT rc = d->rcItem;
+    if (down || hot) box(g, RectF((REAL)rc.left + 0.5f, (REAL)rc.top + 0.5f,
+        (REAL)(rc.right - rc.left) - 1.0f, (REAL)(rc.bottom - rc.top) - 1.0f), SF(5), down ? T.btnP : T.btnH);
+    txt(g, L"\u00d7", fIconS, RectF((REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left),
+        (REAL)(rc.bottom - rc.top)), T.sub, StringAlignmentCenter);
+    return TRUE;
+  }
   bool primary = popup_primary(d->CtlID);
   Color fill, text;
   Color border = T.border;
@@ -717,6 +747,10 @@ static LRESULT draw_popup_button(const DRAWITEMSTRUCT* d) {
   g.SetSmoothingMode(SmoothingModeAntiAlias);
   ::RECT rc = d->rcItem;
   box(g, RectF((REAL)rc.left + 0.5f, (REAL)rc.top + 0.5f, (REAL)(rc.right - rc.left) - 1.0f, (REAL)(rc.bottom - rc.top) - 1.0f), SF(5), fill, edge);
+  if (d->itemState & ODS_FOCUS) {
+    Pen focus(primary ? T.accentText : T.accent, 1.0f);
+    g.DrawRectangle(&focus, (REAL)rc.left + 3, (REAL)rc.top + 3, (REAL)(rc.right - rc.left) - 6, (REAL)(rc.bottom - rc.top) - 6);
+  }
   txt(g, label, primary ? fBold : fBody, RectF((REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top)), text, StringAlignmentCenter);
   return TRUE;
 }
@@ -725,6 +759,8 @@ static LRESULT popup_hit_test(HWND h, LPARAM l, bool resizable) {
   POINT p{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
   ScreenToClient(h, &p);
   RECT r; GetClientRect(h, &r);
+  RECT close = popup_close_rect(h);
+  if (PtInRect(&close, p)) return HTCLIENT;
   int edge = SI(6);
   if (resizable) {
     bool left = p.x < edge, right = p.x >= r.right - edge, top = p.y < edge, bottom = p.y >= r.bottom - edge;
@@ -748,6 +784,7 @@ static void report_resize(HWND h) {
   MoveWindow(GetDlgItem(h, RP_SUMMARY), SI(18), y + SI(4), max(SI(100), w - SI(220)), SI(22), TRUE);
   MoveWindow(GetDlgItem(h, RP_COPY), max(SI(16), w - SI(184)), y, SI(80), SI(30), TRUE);
   MoveWindow(GetDlgItem(h, RP_CLOSE), max(SI(104), w - SI(96)), y, SI(80), SI(30), TRUE);
+  popup_layout_chrome(h);
 }
 
 static void show_report_window(const std::string& report) {
@@ -769,6 +806,7 @@ static void prompt_resize(HWND h) {
   int y = hgt - SI(46);
   MoveWindow(GetDlgItem(h, PP_CANCEL), max(SI(20), w - SI(192)), y, SI(78), SI(30), TRUE);
   MoveWindow(GetDlgItem(h, PP_ACCEPT), max(SI(106), w - SI(104)), y, SI(84), SI(30), TRUE);
+  popup_layout_chrome(h);
 }
 
 static LRESULT CALLBACK PromptWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -784,6 +822,7 @@ static LRESULT CALLBACK PromptWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       set_popup_font(body, g_uiFont);
       set_popup_font(GetDlgItem(h, PP_CANCEL));
       set_popup_font(GetDlgItem(h, PP_ACCEPT), g_uiBoldFont);
+      create_popup_close(h);
       prompt_resize(h);
       return 0;
     }
@@ -796,7 +835,7 @@ static LRESULT CALLBACK PromptWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.card)); return (LRESULT)g_popupCardBrush;
     case WM_COMMAND:
       if (LOWORD(w) == PP_ACCEPT) { Prompt p = g_prompt; DestroyWindow(h); if (p.kind != K_NONE) start_job(p.kind, p.args, p.busy); return 0; }
-      if (LOWORD(w) == PP_CANCEL) { DestroyWindow(h); return 0; }
+      if (LOWORD(w) == PP_CANCEL || LOWORD(w) == PC_CLOSE) { DestroyWindow(h); return 0; }
       break;
     case WM_CLOSE: DestroyWindow(h); return 0;
     case WM_DESTROY: g_promptWnd = nullptr; return 0;
@@ -848,6 +887,7 @@ static void review_resize(HWND h) {
   MoveWindow(GetDlgItem(h, RV_INSPECT), max(SI(320), w - SI(320)), y, SI(86), SI(30), TRUE);
   MoveWindow(GetDlgItem(h, RV_STAGE), max(SI(410), w - SI(224)), y, SI(136), SI(30), TRUE);
   MoveWindow(GetDlgItem(h, RV_CLOSE), max(SI(550), w - SI(80)), y, SI(64), SI(30), TRUE);
+  popup_layout_chrome(h);
 }
 
 static void stage_review_selection() {
@@ -878,7 +918,7 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
   switch (m) {
     case WM_CREATE: {
       apply_popup_chrome(h);
-      g_reviewList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+      g_reviewList = CreateWindowExW(0, WC_LISTVIEWW, L"",
           WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SINGLESEL,
           0, 0, 0, 0, h, (HMENU)RV_LIST, g_inst, nullptr);
       ListView_SetExtendedListViewStyle(g_reviewList, LVS_EX_FULLROWSELECT | LVS_EX_CHECKBOXES | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP);
@@ -907,6 +947,7 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       HWND summary = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, h, (HMENU)RV_SUMMARY, g_inst, nullptr);
       set_popup_font(summary, g_uiBoldFont);
       for (int id : {RV_ALL, RV_NONE, RV_INSPECT, RV_STAGE, RV_CLOSE}) set_popup_font(GetDlgItem(h, id), id == RV_STAGE ? g_uiBoldFont : g_uiFont);
+      create_popup_close(h);
       review_resize(h);
       review_summary(h);
       return 0;
@@ -953,7 +994,7 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
           return 0;
         }
         case RV_STAGE: stage_review_selection(); return 0;
-        case RV_CLOSE: DestroyWindow(h); return 0;
+        case RV_CLOSE: case PC_CLOSE: DestroyWindow(h); return 0;
       }
       break;
     case WM_DESTROY: g_reviewWnd = nullptr; g_reviewList = nullptr; return 0;
@@ -965,7 +1006,7 @@ static LRESULT CALLBACK ReportWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
   switch (m) {
     case WM_CREATE: {
       apply_popup_chrome(h);
-      g_reportEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", g_reportText.c_str(),
+      g_reportEdit = CreateWindowExW(0, L"EDIT", g_reportText.c_str(),
           WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | ES_WANTRETURN,
           0, 0, 0, 0, h, (HMENU)RP_EDIT, g_inst, nullptr);
       set_popup_font(g_reportEdit, g_uiFont);
@@ -976,6 +1017,7 @@ static LRESULT CALLBACK ReportWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       set_popup_font(summary, g_uiSmallFont);
       set_popup_font(GetDlgItem(h, RP_COPY));
       set_popup_font(GetDlgItem(h, RP_CLOSE), g_uiBoldFont);
+      create_popup_close(h);
       report_resize(h);
       return 0;
     }
@@ -992,7 +1034,7 @@ static LRESULT CALLBACK ReportWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       SetTextColor((HDC)w, CR(T.sub)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
     case WM_COMMAND:
       if (LOWORD(w) == RP_COPY) { SendMessageW(g_reportEdit, EM_SETSEL, 0, -1); SendMessageW(g_reportEdit, WM_COPY, 0, 0); SetWindowTextW(GetDlgItem(h, RP_SUMMARY), L"Report copied to the clipboard"); return 0; }
-      if (LOWORD(w) == RP_CLOSE) { DestroyWindow(h); return 0; }
+      if (LOWORD(w) == RP_CLOSE || LOWORD(w) == PC_CLOSE) { DestroyWindow(h); return 0; }
       break;
     case WM_DESTROY: g_reportWnd = nullptr; g_reportEdit = nullptr; return 0;
   }
@@ -1478,6 +1520,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         load_theme(); apply_dwm();
         if (g_reviewWnd) { apply_popup_chrome(g_reviewWnd); ListView_SetBkColor(g_reviewList, CR(T.card)); ListView_SetTextBkColor(g_reviewList, CR(T.card)); ListView_SetTextColor(g_reviewList, CR(T.text)); RedrawWindow(g_reviewWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN); }
         if (g_reportWnd) { apply_popup_chrome(g_reportWnd); RedrawWindow(g_reportWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN); }
+        if (g_promptWnd) { apply_popup_chrome(g_promptWnd); RedrawWindow(g_promptWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN); }
         invalidate();
       }
       return 0;
