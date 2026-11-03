@@ -67,7 +67,7 @@ Only **names, sizes and dates**, never file contents. For each folder (`Descript
 * where it lives (`appdata-local`, `appdata-roaming`, `programdata`, `program-files`, `windows`, `temp`, `user-profile`)
 * up to 40 child names, normalised (`f_0000a1` -> `f_H`, `data_12` -> `data_0`) and the child file extensions
 * the file-type mix by bytes (blob / config / database / media / documents / programs / logs / temp / keys ...)
-* size, file-count and age buckets; whether it contains executables or an uninstaller; whether an installed app owns it
+* size, file-count and age buckets; whether it contains executables or an uninstaller; whether an installed app owns it; and protected child names such as credentials, keys, wallets, and saves
 * a few interactions (name word x location, name word x owned)
 
 ## 4. How it learns

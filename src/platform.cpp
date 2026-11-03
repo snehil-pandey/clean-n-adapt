@@ -155,6 +155,9 @@ static void read_uninstall(HKEY root, const wchar_t* path, REGSAM extra, const c
     App a;
     a.name = w2u(reg_str(sk, L"DisplayName"));
     a.publisher = w2u(reg_str(sk, L"Publisher"));
+    a.version = w2u(reg_str(sk, L"DisplayVersion"));
+    a.uninstall = w2u(reg_str(sk, L"UninstallString"));
+    a.quiet_uninstall = w2u(reg_str(sk, L"QuietUninstallString"));
     std::wstring loc = reg_str(sk, L"InstallLocation");
     if (loc.empty()) {
       std::wstring icon = reg_str(sk, L"DisplayIcon");

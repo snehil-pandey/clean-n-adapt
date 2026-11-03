@@ -18,6 +18,7 @@ static void usage() {
       "  cna dupes --of FILE [paths...]      is there another copy of this file?\n"
       "  cna remnants [--min-score 65] [--apps-file F] [--quarantine --yes] [--select PATH ...]\n"
       "  cna remnants --app NAME             everything an (uninstalled) app left behind\n"
+      "  cna apps [list|remove|leftovers] --app NAME   inventory, official uninstall, or classified leftover audit\n"
       "  cna explain PATH [--refresh] [--llm] [--no-store]\n"
       "  cna kb [list|search WORDS|forget PATH]\n\n"
       "Safety net\n"
@@ -60,6 +61,7 @@ static int run(const std::vector<std::string>& argv) {
   if (cmd == "clean") return cmd_clean(a, false);
   if (cmd == "dupes") return cmd_dupes(a);
   if (cmd == "remnants") return cmd_remnants(a);
+  if (cmd == "apps") return cmd_apps(a);
   if (cmd == "explain") return cmd_explain(a);
   if (cmd == "kb") return cmd_kb(a);
   if (cmd == "model") return cmd_model(a);

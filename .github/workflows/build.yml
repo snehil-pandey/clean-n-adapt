@@ -38,6 +38,9 @@ jobs:
       - name: Review safety regression test
         shell: pwsh
         run: python tests/review_check.py dist/cna.exe
+      - name: App removal and classified-leftover regression test
+        shell: pwsh
+        run: python tests/apps_check.py dist/cna.exe
       - name: Advisor regression tests
         shell: pwsh
         run: |

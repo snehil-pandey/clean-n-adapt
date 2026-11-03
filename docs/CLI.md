@@ -103,6 +103,25 @@ JSON:
 
     {"sets":[{"size":N,"wasted":N,"keeper":index,"paths":["..."]}],"total_wasted":N,"quarantined_files":N}
 
+## `apps`
+
+    cna apps list [--search WORD] [--json]
+    cna apps remove --app "Exact display name" [--yes]
+    cna apps leftovers --app NAME [--depth 3] [--select PATH ...] [--quarantine --yes] [--json]
+
+`apps list` merges duplicate registry entries where the display name, publisher, and install location agree. It shows
+the application source, version, install location, and whether Windows registered an official uninstaller.
+
+`apps remove` is deliberately narrow: without `--yes` it previews the registered uninstaller; with `--yes` it launches
+only that uninstaller. It never deletes an install directory, registry key, Microsoft Store package, or application data
+directly. It refuses ambiguous matches and apps without a registered official uninstaller.
+
+After the uninstaller has completed, `apps leftovers` audits matching locations in AppData, ProgramData, Program Files,
+Temp, and Start Menu roots. Each row states its data type, local-model confidence, evidence, and a `keep` or `review`
+recommendation. Windows 11 shared/system directories, cloud placeholders, junctions, credentials, saves, keys, and data
+for still-installed apps are protected. Use repeated `--select PATH` flags with `--quarantine --yes` to move only the
+reviewed paths you do not wish to keep; quarantine remains reversible.
+
 ## `remnants`
 
     cna remnants [--min-score 65] [--apps-file FILE] [--quarantine --yes] [--select PATH ...] [--json]
@@ -124,7 +143,8 @@ JSON (leftovers):
 
 JSON (`--app`):
 
-    {"term":"...","still_installed":["..."],"paths":[{"path":"...","dir":true,"bytes":N}],
+    {"term":"...","still_installed":["..."],"paths":[{"path":"...","dir":true,"bytes":N,
+     "category":"...","action":"keep|review|clean","confidence":0.0,"reason":"..."}],
      "registry":["..."],"total_bytes":N}
 
 ## `explain`

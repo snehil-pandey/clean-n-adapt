@@ -1,6 +1,7 @@
 #include <fstream>
 
 #include "cmds.hpp"
+#include "model.hpp"
 
 namespace cna {
 
@@ -204,11 +205,17 @@ static int app_search(const Args& a, const std::vector<plat::App>& apps) {
   addroot("APPDATA", 3, "Microsoft/Windows/Start Menu/Programs");
   addroot("PROGRAMDATA", 3, "Microsoft/Windows/Start Menu/Programs");
 
-  struct Hit { std::string path; bool dir; uint64_t bytes; };
+  struct Hit {
+    std::string path, category, action, reason;
+    bool dir = false;
+    uint64_t bytes = 0;
+    float confidence = 0;
+  };
   std::vector<Hit> hits;
   std::set<std::string> seen;
   for (auto& r : roots)
     walk(r.first, [&](const Entry& e) {
+      if (is_excluded(e.path) || plat::is_cloud_placeholder(e.path) || (e.is_dir && plat::is_reparse_dir(e.path))) return false;
       std::string n = u8(e.path.filename());
       bool match = lower(n).find(term) != std::string::npos || norm_alnum(n).find(nterm) != std::string::npos;
       if (!match) return true;
@@ -216,7 +223,9 @@ static int app_search(const Args& a, const std::vector<plat::App>& apps) {
       if (!seen.insert(norm_key(e.path)).second) return false;
       uint64_t b = e.size;
       if (e.is_dir) b = tree_info(e.path, 50000).bytes;
-      hits.push_back({u8(e.path), e.is_dir, b});
+      Hit h;
+      h.path = u8(e.path); h.dir = e.is_dir; h.bytes = b;
+      hits.push_back(std::move(h));
       return false;
     }, r.second);
 
@@ -228,16 +237,54 @@ static int app_search(const Args& a, const std::vector<plat::App>& apps) {
   uint64_t total = 0;
   for (auto& h : hits) total += h.bytes;
 
+  // A matching folder name alone is not enough. Describe each candidate from its
+  // location, structure, file mix, deterministic safety rules, and local model.
+  OwnerIndex owners;
+  owners.build(apps);
+  for (auto& h : hits) {
+    fs::path p = P(h.path);
+    Descriptor d = describe_path(p, &owners, 50000);
+    Prediction pr = model().predict(d, true);
+    Advice ad = advise(d, h.path, pr);
+    TreeInfo ti = tree_info(p, 50000, true);
+    std::set<std::string> top(d.children.begin(), d.children.end());
+    RuleVerdict rv = rule_verdict(p, ti, top);
+    h.confidence = ad.conf;
+    if (sensitive_name(d)) h.category = "personal or sensitive data";
+    else if (rv.kind != "unknown") h.category = rv.kind;
+    else if (d.root_kind == "appdata-local" || d.root_kind == "appdata-roaming") h.category = "app settings or data";
+    else if (d.root_kind == "program-files") h.category = "program files";
+    else if (d.root_kind == "programdata") h.category = "shared application data";
+    else h.category = "unknown application data";
+    h.action = ad.action;
+    h.reason = !ad.note.empty() ? ad.note : (!rv.summary.empty() ? rv.summary : "local model classification");
+    if (d.root_kind == "windows" || system_folder_name(lower(u8(p.filename())))) {
+      h.action = "keep";
+      h.reason = "Windows 11 system or shared directory; it is not an application leftover";
+    }
+    if (!still.empty()) {
+      h.action = "keep";
+      h.reason = "the application is still registered; uninstall it with its official uninstaller first";
+    }
+  }
+
   uint64_t qb = 0;
   int qfail = 0;
   bool do_q = a.has("quarantine") && G.yes;
   if (do_q) {
     if (!still.empty()) { std::fprintf(stderr, "Refusing to quarantine: \"%s\" still appears installed. Use its uninstaller first.\n", still[0].c_str()); return 1; }
+    std::set<std::string> selected;
+    for (auto& p : a.all("select")) selected.insert(norm_key(P(p)));
+    int moved_candidates = 0;
     for (auto& h : hits) {
+      if (!selected.empty() && !selected.count(norm_key(P(h.path)))) continue;
+      if (h.action == "keep") { std::fprintf(stderr, "keep %s: %s\n", h.path.c_str(), h.reason.c_str()); continue; }
+      ++moved_candidates;
       std::string err;
       if (q_move(P(h.path), "leftover of " + term, h.bytes, err).empty()) { std::fprintf(stderr, "skip %s: %s\n", h.path.c_str(), err.c_str()); ++qfail; }
       else qb += h.bytes;
     }
+    if (!selected.empty() && moved_candidates == 0) { std::fprintf(stderr, "none of the selected paths are eligible leftover candidates; inspect the report again\n"); return 1; }
   }
 
   if (G.json) {
@@ -245,7 +292,9 @@ static int app_search(const Args& a, const std::vector<plat::App>& apps) {
     for (size_t i = 0; i < still.size(); ++i) std::printf("%s\"%s\"", i ? "," : "", jesc(still[i]).c_str());
     std::printf("],\"paths\":[");
     for (size_t i = 0; i < hits.size(); ++i)
-      std::printf("%s{\"path\":\"%s\",\"dir\":%s,\"bytes\":%llu}", i ? "," : "", jesc(hits[i].path).c_str(), hits[i].dir ? "true" : "false", (unsigned long long)hits[i].bytes);
+      std::printf("%s{\"path\":\"%s\",\"dir\":%s,\"bytes\":%llu,\"category\":\"%s\",\"action\":\"%s\",\"confidence\":%.3f,\"reason\":\"%s\"}",
+                  i ? "," : "", jesc(hits[i].path).c_str(), hits[i].dir ? "true" : "false", (unsigned long long)hits[i].bytes,
+                  jesc(hits[i].category).c_str(), jesc(hits[i].action).c_str(), hits[i].confidence, jesc(hits[i].reason).c_str());
     std::printf("],\"registry\":[");
     for (size_t i = 0; i < reg.size(); ++i) std::printf("%s\"%s\"", i ? "," : "", jesc(reg[i]).c_str());
     std::printf("],\"total_bytes\":%llu}\n", (unsigned long long)total);
@@ -254,14 +303,90 @@ static int app_search(const Args& a, const std::vector<plat::App>& apps) {
   if (!still.empty()) std::printf("Note: \"%s\" still appears in the installed-apps list - uninstall it properly first.\n\n", still[0].c_str());
   std::printf("Files & folders matching \"%s\":\n", term.c_str());
   if (hits.empty()) std::printf("  (none)\n");
-  for (auto& h : hits) std::printf("  %10s  %s%s\n", human(h.bytes).c_str(), h.path.c_str(), h.dir ? "/" : "");
+  for (auto& h : hits) std::printf("  %10s  [%s / %s / %.0f%%]  %s%s\n       %s\n", human(h.bytes).c_str(), h.category.c_str(), h.action.c_str(), h.confidence * 100, h.path.c_str(), h.dir ? "/" : "", h.reason.c_str());
   std::printf("\nRegistry (report only, never modified):\n");
   if (reg.empty()) std::printf("  (none%s)\n", plat::env("USERPROFILE") ? "" : " - registry search is Windows-only");
   for (auto& r : reg) std::printf("  %s\n", r.c_str());
   std::printf("\n%zu path(s), %s.\n", hits.size(), human(total).c_str());
   if (do_q) std::printf("Moved %s to quarantine. Undo with `cna quarantine`.\n", human(qb).c_str());
-  else if (!hits.empty()) std::printf("Add --quarantine --yes to move these to quarantine (reversible).\n");
+  else if (!hits.empty()) std::printf("Review the data types, then use --quarantine --yes --select PATH for only the items you do not want to keep. Moves are reversible.\n");
   return qfail ? 2 : 0;
+}
+
+static std::vector<const plat::App*> app_matches(const std::vector<plat::App>& apps, const std::string& term) {
+  std::vector<const plat::App*> exact, loose;
+  std::string key = norm_alnum(term);
+  for (auto& a : apps) {
+    std::string name = a.name.empty() ? a.alias : a.name;
+    std::string nk = norm_alnum(name);
+    if (nk == key && !key.empty()) exact.push_back(&a);
+    else if (!key.empty() && (nk.find(key) != std::string::npos || norm_alnum(a.alias).find(key) != std::string::npos)) loose.push_back(&a);
+  }
+  return exact.empty() ? loose : exact;
+}
+
+static const char* app_source(const plat::App& a) {
+  if (a.source == "appx") return "Microsoft Store";
+  if (a.source == "hkcu") return "Current user";
+  if (a.source == "hklm" || a.source == "hklm32") return "System";
+  return a.source.c_str();
+}
+
+int cmd_apps(const Args& a) {
+  std::string sub = a.pos.empty() ? "list" : lower(a.pos[0]);
+  auto apps = load_apps(a.get("apps-file"));
+  if (apps.empty()) { std::fprintf(stderr, "No installed-app inventory is available. On Windows, run this outside a restricted shell.\n"); return 1; }
+  std::string term = a.get("app", a.get("search"));
+  if (sub == "leftovers") {
+    if (term.empty()) { std::fprintf(stderr, "apps leftovers requires --app NAME\n"); return 64; }
+    return app_search(a, apps);
+  }
+  if (sub == "list") {
+    std::set<std::string> seen;
+    if (G.json) std::printf("{\"apps\":[");
+    bool first = true;
+    for (auto& app : apps) {
+      std::string name = app.name.empty() ? app.alias : app.name;
+      if (name.empty()) continue;
+      if (!term.empty() && lower(name).find(lower(term)) == std::string::npos && lower(app.publisher).find(lower(term)) == std::string::npos) continue;
+      std::string identity = norm_alnum(name) + "|" + norm_alnum(app.publisher) + "|" + norm_key(P(app.install_loc));
+      if (!seen.insert(identity).second) continue;
+      if (G.json) {
+        std::printf("%s{\"name\":\"%s\",\"publisher\":\"%s\",\"version\":\"%s\",\"install_location\":\"%s\",\"source\":\"%s\",\"official_uninstaller\":%s}",
+                    first ? "" : ",", jesc(name).c_str(), jesc(app.publisher).c_str(), jesc(app.version).c_str(), jesc(app.install_loc).c_str(),
+                    jesc(app_source(app)).c_str(), app.uninstall.empty() ? "false" : "true");
+      } else {
+        std::printf("%s\n  %s%s%s\n  Source: %s  Official uninstaller: %s\n", name.c_str(), app.publisher.empty() ? "" : app.publisher.c_str(),
+                    app.version.empty() ? "" : " ", app.version.empty() ? "" : app.version.c_str(), app_source(app), app.uninstall.empty() ? "no" : "yes");
+      }
+      first = false;
+    }
+    if (G.json) std::printf("]}\n");
+    return 0;
+  }
+  if (sub != "remove") { std::fprintf(stderr, "apps supports list, remove, or leftovers\n"); return 64; }
+  if (term.empty()) { std::fprintf(stderr, "apps remove requires --app NAME\n"); return 64; }
+  auto found = app_matches(apps, term);
+  if (found.empty()) { std::fprintf(stderr, "No installed application exactly matches \"%s\". Use `cna apps list --search ...` first.\n", term.c_str()); return 1; }
+  if (found.size() != 1) {
+    std::fprintf(stderr, "More than one application matches \"%s\"; use the exact display name:\n", term.c_str());
+    for (auto* p : found) std::fprintf(stderr, "  %s\n", (p->name.empty() ? p->alias : p->name).c_str());
+    return 1;
+  }
+  const plat::App& app = *found[0];
+  std::string name = app.name.empty() ? app.alias : app.name;
+  if (app.uninstall.empty()) { std::fprintf(stderr, "Refusing removal: %s has no registered official uninstaller. Nothing was changed.\n", name.c_str()); return 1; }
+  if (!G.yes) {
+    std::printf("Official uninstaller for %s:\n  %s\n\nPreview only. Re-run `cna apps remove --app \"%s\" --yes` to launch it. CNA will never delete its install folder directly.\n",
+                name.c_str(), app.uninstall.c_str(), name.c_str());
+    return 0;
+  }
+  std::string out;
+  int rc = plat::run_command(app.uninstall, out);
+  std::printf("Official uninstaller finished with exit code %d.\n", rc);
+  if (!out.empty()) std::printf("%s\n", out.c_str());
+  std::printf("No application data was removed by CNA. Review what remains with:\n  cna apps leftovers --app \"%s\"\n", name.c_str());
+  return rc == 0 ? 0 : 2;
 }
 
 int cmd_remnants(const Args& a) {

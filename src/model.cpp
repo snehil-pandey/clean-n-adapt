@@ -640,6 +640,14 @@ bool sensitive_name(const Descriptor& d) {
     std::string n = norm_alnum(*nm);
     for (auto* sb : subs) if (n.find(sb) != std::string::npos) return true;
   }
+  // An app-data root can be named after the app while containing a credential,
+  // wallet, key, or save subfolder. Protect the root rather than asking the
+  // user to infer that risk from a shallow folder name.
+  for (auto& child : d.children) {
+    for (auto& t : name_tokens(child)) if (toks.count(t)) return true;
+    std::string n = norm_alnum(child);
+    for (auto* sb : subs) if (n.find(sb) != std::string::npos) return true;
+  }
   return false;
 }
 

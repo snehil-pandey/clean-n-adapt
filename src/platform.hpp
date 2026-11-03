@@ -7,7 +7,7 @@
 namespace cna::plat {
 
 struct App {
-  std::string name, publisher, alias, install_loc, source;
+  std::string name, publisher, alias, install_loc, version, uninstall, quiet_uninstall, source;
 };
 
 struct FileId {

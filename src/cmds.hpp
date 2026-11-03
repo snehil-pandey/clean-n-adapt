@@ -43,6 +43,7 @@ std::vector<plat::App> load_apps(const std::string& apps_file);
 std::vector<Remnant> find_remnants(int min_score, const std::vector<plat::App>& apps, std::vector<std::string>& stale);
 int remnants_quarantine(const std::vector<Remnant>& r, uint64_t& moved_bytes);
 int cmd_remnants(const Args& a);
+int cmd_apps(const Args& a);
 
 struct RuleVerdict { std::string kind = "unknown", safety = "unknown", summary; };
 RuleVerdict rule_verdict(const fs::path& p, const TreeInfo& ti, const std::set<std::string>& top);
