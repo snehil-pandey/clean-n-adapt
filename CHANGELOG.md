@@ -6,7 +6,22 @@ All notable changes to Clean-n-Adapt are documented here. The format follows
 
 ## [Unreleased]
 
-No unreleased changes.
+## [3.0.1] - 2026-11-03
+
+### Changed
+- Unified the native report, cleanup-review, and confirmation windows with the
+  widget's light/dark theme, accent colour, typography, spacing, and Windows
+  11 window chrome.
+- Reports now stay inside a themed read-only window with a Copy action instead
+  of opening as an unstyled edit control.
+- Cleanup review now adapts its columns to the window, displays a live selected
+  item and size summary, and presents protected copies as unavailable.
+
+### Fixed
+- Protected review candidates, including duplicate keepers, cannot be toggled
+  in the UI; they remain visible for inspection but cannot be staged.
+- Debloat reversal and empty-selection notifications now use the same native
+  confirmation surface as the rest of the widget.
 
 ## [3.0.0] - 2026-11-03
 
