@@ -681,9 +681,9 @@ static void paint_popup_header(HWND h, const std::wstring& title, const std::wst
   g.SetSmoothingMode(SmoothingModeAntiAlias);
   g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
   g.Clear(T.bg);
-  logo(g, RectF(SI(16), SI(16), SI(28), SI(28)));
-  txt(g, title, fTitle, RectF(SI(54), SI(12), max(0, rc.right - SI(190)), SI(24)), T.text);
-  txt(g, subtitle, fSmall, RectF(SI(54), SI(37), max(0, rc.right - SI(76)), SI(18)), T.sub);
+  logo(g, RectF((REAL)SI(16), (REAL)SI(16), (REAL)SI(28), (REAL)SI(28)));
+  txt(g, title, fTitle, RectF((REAL)SI(54), (REAL)SI(12), (REAL)max(0, rc.right - SI(190)), (REAL)SI(24)), T.text);
+  txt(g, subtitle, fSmall, RectF((REAL)SI(54), (REAL)SI(37), (REAL)max(0, rc.right - SI(76)), (REAL)SI(18)), T.sub);
   EndPaint(h, &ps);
 }
 
@@ -919,7 +919,6 @@ static LRESULT CALLBACK ReportWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       g_reportEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", g_reportText.c_str(),
           WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | ES_WANTRETURN,
           0, 0, 0, 0, h, (HMENU)RP_EDIT, g_inst, nullptr);
-      SendMessageW(g_reportEdit, EM_SETBKGNDCOLOR, 0, CR(T.card));
       set_popup_font(g_reportEdit, g_uiFont);
       HWND summary = CreateWindowW(L"STATIC", L"Read-only report · use Copy to share it", WS_CHILD | WS_VISIBLE | SS_LEFT,
           0, 0, 0, 0, h, (HMENU)RP_SUMMARY, g_inst, nullptr);
@@ -1429,7 +1428,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       if (l && lstrcmpW((LPCWSTR)l, L"ImmersiveColorSet") == 0) {
         load_theme(); apply_dwm();
         if (g_reviewWnd) { apply_popup_chrome(g_reviewWnd); ListView_SetBkColor(g_reviewList, CR(T.card)); ListView_SetTextBkColor(g_reviewList, CR(T.card)); ListView_SetTextColor(g_reviewList, CR(T.text)); RedrawWindow(g_reviewWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN); }
-        if (g_reportWnd) { apply_popup_chrome(g_reportWnd); SendMessageW(g_reportEdit, EM_SETBKGNDCOLOR, 0, CR(T.card)); RedrawWindow(g_reportWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN); }
+        if (g_reportWnd) { apply_popup_chrome(g_reportWnd); RedrawWindow(g_reportWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN); }
         invalidate();
       }
       return 0;
