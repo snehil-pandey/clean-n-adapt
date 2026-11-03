@@ -1,5 +1,4 @@
-# Builds the Windows exes and the installer on every push and uploads the installer as a downloadable artifact.
-# (Written but not run yet: first run happens when you push the project to GitHub.)
+# Builds the Windows exes and installer on every push, then verifies and uploads the installer artifact.
 name: build-windows
 on:
   push:
