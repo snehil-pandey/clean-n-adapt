@@ -14,7 +14,7 @@ static void usage() {
       "      profiles: quick browser dev gaming windows apps custom full (comma-separated)\n"
       "      --min-age DAYS  keep files newer than this     -v  list every folder\n\n"
       "Finding things\n"
-      "  cna dupes [paths...] [--min-size 1M] [--quarantine --yes]\n"
+      "  cna dupes [paths...] [--min-size 1M] [--quarantine --yes] [--select PATH ...]\n"
       "  cna dupes --of FILE [paths...]      is there another copy of this file?\n"
       "  cna remnants [--min-score 65] [--apps-file F] [--quarantine --yes] [--select PATH ...]\n"
       "  cna remnants --app NAME             everything an (uninstalled) app left behind\n"

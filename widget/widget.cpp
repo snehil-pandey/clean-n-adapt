@@ -11,6 +11,7 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <dwmapi.h>
+#include <commctrl.h>
 
 #include <algorithm>
 #include <cmath>
@@ -32,7 +33,7 @@ using namespace Gdiplus;
 enum { T_ANIM = 1, T_CONFIRM = 2, T_DISK = 3 };
 enum { ID_NONE = 0, ID_CLOSE, ID_PIN, ID_PROF = 10, ID_SCAN = 20, ID_ACTION, ID_DUPES = 30, ID_LEFT, ID_QUAR, ID_SMART, ID_DEBLOAT, ID_DETAILS = 40, ID_AUTO, ID_RESULT_ROW = 60 };
 enum { CM_SHOW = 1, CM_QUICK, CM_AUTORUN, CM_PIN, CM_STARTUP, CM_UNDO_DEBLOAT, CM_REMOVE_APPS, CM_EXIT };
-enum Kind { K_NONE, K_SCAN, K_CLEAN, K_QUICK, K_DUPES, K_LEFT, K_QUAR, K_QDUPES, K_QLEFT, K_AUTOSTAT, K_AUTOSET, K_AUTORUN, K_DETAILS, K_SMART, K_QSMART, K_DEBLOAT, K_DEBLOAT_APPLY, K_DEBLOAT_UNDO, K_DEBLOAT_APPS };
+enum Kind { K_NONE, K_SCAN, K_CLEAN, K_QUICK, K_DUPES, K_LEFT, K_QUAR, K_QDUPES, K_QLEFT, K_AUTOSTAT, K_AUTOSET, K_AUTORUN, K_DETAILS, K_SMART, K_QSMART, K_DEBLOAT, K_DEBLOAT_APPLY, K_DEBLOAT_UNDO, K_DEBLOAT_APPS, K_REVIEW };
 
 static const wchar_t* kClass = L"CnaWidgetWnd";
 static const wchar_t* kRunKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -61,6 +62,14 @@ struct ProfileResult {
   std::vector<std::pair<std::wstring, std::wstring>> lines;
 };
 static ProfileResult g_profileResults[5];
+struct ReviewItem {
+  std::wstring path, category, confidence, reason;
+  uint64_t bytes = 0;
+  bool eligible = false, selected = false;
+};
+static std::vector<ReviewItem> g_reviewItems;
+static int g_reviewApplyKind = K_NONE;
+static HWND g_reviewWnd = nullptr, g_reviewList = nullptr;
 static std::wstring g_note;
 static std::wstring g_status = L"Ready", g_sub = L"", g_heroBig = L"\u2014", g_heroCap = L"Run a scan to see what can be cleaned", g_heroMeta, g_reportArgs;
 static std::vector<std::pair<std::wstring, std::wstring>> g_lines;
@@ -641,6 +650,102 @@ static void show_report_window(const std::string& report) {
   }
 }
 
+enum { RV_LIST = 200, RV_ALL, RV_NONE, RV_INSPECT, RV_STAGE, RV_CLOSE };
+
+static void review_resize(HWND h) {
+  RECT r; GetClientRect(h, &r);
+  int w = r.right - r.left, hgt = r.bottom - r.top;
+  MoveWindow(g_reviewList, 12, 12, max(100, w - 24), max(100, hgt - 68), TRUE);
+  int y = hgt - 44;
+  MoveWindow(GetDlgItem(h, RV_ALL), 12, y, 92, 28, TRUE);
+  MoveWindow(GetDlgItem(h, RV_NONE), 112, y, 92, 28, TRUE);
+  MoveWindow(GetDlgItem(h, RV_INSPECT), 212, y, 92, 28, TRUE);
+  MoveWindow(GetDlgItem(h, RV_STAGE), max(320, w - 230), y, 142, 28, TRUE);
+  MoveWindow(GetDlgItem(h, RV_CLOSE), max(470, w - 80), y, 68, 28, TRUE);
+}
+
+static void stage_review_selection() {
+  if (!g_reviewList) return;
+  std::wstring args;
+  if (g_reviewApplyKind == K_QLEFT) args = L"remnants --quarantine --yes --json";
+  else if (g_reviewApplyKind == K_QSMART) args = L"recommend --apply --yes --json";
+  else if (g_reviewApplyKind == K_QDUPES) args = L"dupes --min-size 10M --quarantine --yes --json";
+  else return;
+  uint64_t bytes = 0;
+  int n = 0;
+  for (size_t i = 0; i < g_reviewItems.size(); ++i) {
+    bool checked = ListView_GetCheckState(g_reviewList, (int)i) != FALSE;
+    g_reviewItems[i].selected = checked && g_reviewItems[i].eligible;
+    if (!g_reviewItems[i].selected) continue;
+    args += L" --select \"" + g_reviewItems[i].path + L"\"";
+    bytes += g_reviewItems[i].bytes; ++n;
+  }
+  if (!n) { MessageBoxW(g_reviewWnd, L"Select at least one eligible item before continuing.", L"Nothing selected", MB_OK | MB_ICONINFORMATION); return; }
+  g_pending = {true, L"Quarantine " + human(bytes), args, g_reviewApplyKind};
+  g_confirming = false;
+  set_status(std::to_wstring(n) + L" selected item(s) staged - click Quarantine, then Confirm");
+  DestroyWindow(g_reviewWnd);
+  invalidate();
+}
+
+static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+  switch (m) {
+    case WM_CREATE: {
+      g_reviewList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+          WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SINGLESEL,
+          0, 0, 0, 0, h, (HMENU)RV_LIST, g_inst, nullptr);
+      ListView_SetExtendedListViewStyle(g_reviewList, LVS_EX_FULLROWSELECT | LVS_EX_CHECKBOXES | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP);
+      struct Col { const wchar_t* name; int width; } cols[] = {{L"Path", 320}, {L"Category", 110}, {L"Size", 90}, {L"Confidence", 100}, {L"Reason", 360}};
+      for (int i = 0; i < 5; ++i) { LVCOLUMNW c{}; c.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM; c.pszText = (LPWSTR)cols[i].name; c.cx = cols[i].width; c.iSubItem = i; ListView_InsertColumn(g_reviewList, i, &c); }
+      for (size_t i = 0; i < g_reviewItems.size(); ++i) {
+        auto& row = g_reviewItems[i];
+        LVITEMW it{}; it.mask = LVIF_TEXT; it.iItem = (int)i; it.pszText = (LPWSTR)row.path.c_str();
+        ListView_InsertItem(g_reviewList, &it);
+        ListView_SetItemText(g_reviewList, (int)i, 1, (LPWSTR)row.category.c_str());
+        std::wstring sz = human(row.bytes); ListView_SetItemText(g_reviewList, (int)i, 2, (LPWSTR)sz.c_str());
+        ListView_SetItemText(g_reviewList, (int)i, 3, (LPWSTR)row.confidence.c_str());
+        ListView_SetItemText(g_reviewList, (int)i, 4, (LPWSTR)row.reason.c_str());
+        ListView_SetCheckState(g_reviewList, (int)i, row.selected && row.eligible);
+      }
+      CreateWindowW(L"BUTTON", L"Select all", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_ALL, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Clear all", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_NONE, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Inspect", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_INSPECT, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Stage quarantine", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_STAGE, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_CLOSE, g_inst, nullptr);
+      review_resize(h);
+      return 0;
+    }
+    case WM_SIZE: review_resize(h); return 0;
+    case WM_COMMAND:
+      switch (LOWORD(w)) {
+        case RV_ALL:
+          for (size_t i = 0; i < g_reviewItems.size(); ++i) if (g_reviewItems[i].eligible) ListView_SetCheckState(g_reviewList, (int)i, TRUE);
+          return 0;
+        case RV_NONE:
+          for (size_t i = 0; i < g_reviewItems.size(); ++i) ListView_SetCheckState(g_reviewList, (int)i, FALSE);
+          return 0;
+        case RV_INSPECT: {
+          int i = ListView_GetNextItem(g_reviewList, -1, LVNI_SELECTED);
+          if (i >= 0 && (size_t)i < g_reviewItems.size()) start_job(K_DETAILS, L"explain \"" + g_reviewItems[(size_t)i].path + L"\"", L"Inspecting selected item...");
+          return 0;
+        }
+        case RV_STAGE: stage_review_selection(); return 0;
+        case RV_CLOSE: DestroyWindow(h); return 0;
+      }
+      break;
+    case WM_DESTROY: g_reviewWnd = nullptr; g_reviewList = nullptr; return 0;
+  }
+  return DefWindowProcW(h, m, w, l);
+}
+
+static void show_review_window() {
+  if (g_reviewItems.empty()) return;
+  if (g_reviewWnd) { SetForegroundWindow(g_reviewWnd); return; }
+  g_reviewWnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"CnaReviewWnd", L"Clean-n-Adapt review",
+      WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1040, 620, g_hwnd, nullptr, g_inst, nullptr);
+  if (!g_reviewWnd) set_status(L"Could not open the review window", true);
+}
+
 static std::wstring prof_arg() { return kProfArgs[g_profile]; }
 
 static void clear_result() {
@@ -649,6 +754,7 @@ static void clear_result() {
   g_heroBig = L"\u2014"; g_heroCap = L"Run a scan to see what can be cleaned"; g_heroMeta.clear();
   g_reportArgs.clear();
   g_selectable = false; g_selectPaths.clear(); g_selected.clear(); g_selectBaseArgs.clear(); g_selectKind = K_NONE; g_profileResultShown = false;
+  g_reviewItems.clear(); g_reviewApplyKind = K_NONE;
   set_status(L"Ready");
 }
 
@@ -742,7 +848,8 @@ static void on_done(JobData* j) {
     g_heroCap = std::wstring(L"can be reclaimed \u00B7 ") + kProfNames[g_profile] + L" profile";
     g_heroMeta = std::to_wstring(files) + L" files";
     g_reportArgs = L"scan --profile " + prof_arg() + L" -v";
-    g_selectable = false; g_selectPaths.clear(); g_selected.clear(); g_selectBaseArgs.clear(); g_selectKind = K_NONE; g_profileResultShown = true;
+    g_selectable = false; g_selectPaths.clear(); g_selected.clear(); g_selectBaseArgs.clear(); g_selectKind = K_NONE;
+    g_reviewItems.clear(); g_reviewApplyKind = K_NONE; g_profileResultShown = true;
     size_t sk = kpos(o, "skipped_needs_admin");
     size_t nadmin = 0;
     if (sk != std::string::npos) { size_t e = o.find(']', sk); if (e != std::string::npos && e > sk + 1) nadmin = count_of(o.substr(sk, e - sk), "\",\"") + 1; }
@@ -779,13 +886,32 @@ static void on_done(JobData* j) {
     g_heroCap = std::to_wstring(nsets) + (nsets == 1 ? L" set of duplicate files (10 MB+)" : L" sets of duplicate files (10 MB+)");
     g_heroMeta.clear();
     g_reportArgs = L"dupes --min-size 10M --limit 100";
-    if (nsets) { g_pending = {true, L"Quarantine extras", L"dupes --min-size 10M --quarantine --yes --json", K_QDUPES}; set_status(L"Extra copies move to quarantine (reversible)"); }
+    g_reviewItems.clear(); g_reviewApplyKind = K_NONE;
+    p = 0;
+    while ((p = o.find("{\"size\":", p)) != std::string::npos) {
+      uint64_t size = numat(o, kpos(o, "size", p));
+      size_t keeper = (size_t)numat(o, kpos(o, "keeper", p));
+      size_t paths = kpos(o, "paths", p), end = o.find(']', paths);
+      size_t count = end == std::string::npos ? 0 : count_of(o.substr(paths, end - paths), "\",\"") + 1;
+      std::string keeper_path = nth_str(o, paths, keeper);
+      for (size_t i = 0; i < count; ++i) {
+        std::string path = nth_str(o, paths, i);
+        if (path.empty()) continue;
+        bool eligible = i != keeper;
+        g_reviewItems.push_back({W(path), eligible ? L"Duplicate copy" : L"Keeper", eligible ? L"Verified" : L"Protected",
+                                 eligible ? L"Full SHA-256 match; keeper: " + W(keeper_path) : L"Chosen keeper is never quarantined",
+                                 size, eligible, eligible});
+      }
+      p += 8;
+    }
+    if (nsets) { g_reviewApplyKind = K_QDUPES; g_pending = {true, L"Review duplicates", L"", K_REVIEW}; set_status(L"Review verified copies before staging quarantine"); }
     else { g_pending = Pending(); set_status(L"No duplicates found"); }
   } else if (kind == K_LEFT) {
     size_t n = count_of(o, "\"score\":");
     uint64_t total = numat(o, kpos(o, "total_bytes"));
     g_lines.clear();
     g_selectPaths.clear(); g_selected.clear(); g_selectable = false; g_selectKind = K_NONE;
+    g_reviewItems.clear(); g_reviewApplyKind = K_NONE;
     size_t p = 0;
     int shown = 0;
     while (shown < 3 && (p = o.find("{\"path\":\"", p)) != std::string::npos) {
@@ -800,12 +926,17 @@ static void on_done(JobData* j) {
     g_heroMeta.clear();
     g_reportArgs = L"remnants";
     if (n) {
-      g_selectable = !g_selectPaths.empty();
-      g_selectBaseArgs = L"remnants --quarantine --yes --json";
-      g_selectKind = K_QLEFT;
-      g_pending = {true, L"Quarantine leftovers", g_selectBaseArgs, K_QLEFT};
-      refresh_selection_action();
-      set_status(L"Choose the rows to quarantine - all moves are reversible");
+      p = 0;
+      while ((p = o.find("{\"path\":\"", p)) != std::string::npos) {
+        std::string path = strat(o, p + 8);
+        uint64_t sc = numat(o, kpos(o, "score", p)), b = numat(o, kpos(o, "bytes", p));
+        std::string why = strat(o, kpos(o, "reason", p));
+        g_reviewItems.push_back({W(path), L"Leftover", std::to_wstring(sc) + L" / 100", W(why), b, true, true});
+        p += 9;
+      }
+      g_reviewApplyKind = K_QLEFT;
+      g_pending = {true, L"Review leftovers", L"", K_REVIEW};
+      set_status(L"Review every candidate before staging quarantine");
     }
     else { g_pending = Pending(); set_status(L"No leftovers found"); }
   } else if (kind == K_QUAR) {
@@ -842,6 +973,7 @@ static void on_done(JobData* j) {
       p += 9;
     }
     g_lines.clear(); g_selectPaths.clear(); g_selected.clear(); g_selectable = false; g_selectKind = K_NONE;
+    g_reviewItems.clear(); g_reviewApplyKind = K_NONE;
     for (auto& r : clean_rows) {
       g_lines.push_back({leaf(r.path), human(r.b)}); g_selectPaths.push_back(W(r.path)); g_selected.push_back(true);
       if (g_lines.size() >= 3) break;
@@ -852,12 +984,18 @@ static void on_done(JobData* j) {
     g_heroMeta.clear();
     g_reportArgs = L"recommend --limit 100";
     if (clean_b > 0) {
-      g_selectable = !g_selectPaths.empty();
-      g_selectBaseArgs = L"recommend --apply --yes --json";
-      g_selectKind = K_QSMART;
-      g_pending = {true, L"Quarantine suggestions", g_selectBaseArgs, K_QSMART};
-      refresh_selection_action();
-      set_status(L"Choose safe suggestions to quarantine - nothing is deleted");
+      p = 0;
+      while ((p = o.find("{\"path\":\"", p)) != std::string::npos) {
+        std::string path = strat(o, p + 8), action = strat(o, kpos(o, "action", p));
+        std::string src = strat(o, kpos(o, "source", p)), note = strat(o, kpos(o, "note", p));
+        std::wstring confidence = action == "clean" ? L"Safe by " + W(src) : L"Review only";
+        g_reviewItems.push_back({W(path), action == "clean" ? L"Safe cleanup" : L"Needs review", confidence, W(note),
+                                 numat(o, kpos(o, "bytes", p)), action == "clean", action == "clean"});
+        p += 9;
+      }
+      g_reviewApplyKind = K_QSMART;
+      g_pending = {true, L"Review advice", L"", K_REVIEW};
+      set_status(L"Review safe advice and evidence before staging quarantine");
     }
     else { g_pending = Pending(); set_status(L"Nothing safe to suggest right now"); }
   } else if (kind == K_QSMART) {
@@ -945,6 +1083,8 @@ static void do_click(int id) {
         if (g_child) TerminateProcess(g_child, 1);
         LeaveCriticalSection(&g_cs);
         set_status(L"Stopping\u2026");
+      } else if (g_pending.on && g_pending.kind == K_REVIEW) {
+        show_review_window();
       } else if (g_pending.on) {
         if (!g_confirming) { g_confirming = true; SetTimer(g_hwnd, T_CONFIRM, 5000, nullptr); set_status(L"Click Confirm to proceed (" + g_pending.label + L")"); }
         else { Pending p = g_pending; start_job(p.kind, p.args, p.kind == K_CLEAN ? L"Cleaning\u2026" : p.kind == K_DEBLOAT_APPLY ? L"Applying\u2026" : L"Moving to quarantine\u2026"); }
@@ -1133,6 +1273,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR cmd, int) {
   wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
   wc.lpszClassName = kClass;
   RegisterClassExW(&wc);
+  WNDCLASSEXW review = wc;
+  review.lpfnWndProc = ReviewWndProc;
+  review.lpszClassName = L"CnaReviewWnd";
+  review.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  RegisterClassExW(&review);
   g_hwnd = CreateWindowExW(WS_EX_TOOLWINDOW | (g_pinned ? WS_EX_TOPMOST : 0), kClass, L"Clean-n-Adapt", WS_POPUP, 0, 0, 100, 100, nullptr, nullptr, hi, nullptr);
   if (!g_hwnd) return 1;
   update_scale();

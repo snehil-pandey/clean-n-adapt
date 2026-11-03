@@ -38,15 +38,15 @@ try:
     r = js("recommend", "--min-size", "1M")
     by = {os.path.basename(i["path"]): i for i in r["items"]}
     check("Chrome Cache (5 levels deep) is suggested",  any(i["path"].replace("\\", "/").endswith("User Data/Default/Cache") and i["action"] == "clean" for i in r["items"]))
-    check("discord Cache is a suggested clean-up",    any(i["path"].endswith("discord/Cache") and i["action"] == "clean" for i in r["items"]))
+    check("discord Cache is a suggested clean-up",    any(i["path"].replace("\\", "/").endswith("discord/Cache") and i["action"] == "clean" for i in r["items"]))
     check("odd-named WebViewCache2 recognised",       by.get("WebViewCache2", {}).get("action") == "clean")
     check("parents are not double counted",          sum(i["bytes"] for i in r["items"]) <= 2 * r["clean_bytes"] + r["review_bytes"] and r["review_bytes"] < 80 * MB)
     check("Logs folder is a suggested clean-up",      by.get("Logs", {}).get("action") == "clean")
-    check("Credentials is never cleaned",             not any(i["path"].endswith("Credentials") and i["action"] == "clean" for i in r["items"]))
+    check("Credentials is never cleaned",             not any(i["path"].replace("\\", "/").endswith("Credentials") and i["action"] == "clean" for i in r["items"]))
     check("Telegram tdata is never cleaned",          not any("tdata" in i["path"] and i["action"] == "clean" for i in r["items"]))
     check("Quillsoft settings app only 'review'",     by.get("Quillsoft", {}).get("action") == "review")
     check("Package Cache is not suggested",           not any("Package Cache" in i["path"] for i in r["items"] if i["action"] == "clean"))
-    check("Chrome profile (Bookmarks) not cleaned",   not any(i["path"].endswith("Default") and i["action"] == "clean" for i in r["items"]))
+    check("Chrome profile (Bookmarks) not cleaned",   not any(i["path"].replace("\\", "/").endswith("Default") and i["action"] == "clean" for i in r["items"]))
     check("items carry reasons",                      all(("because" in i) for i in r["items"]))
     check("clean total is plausible (> 30 MB)",       r["clean_bytes"] > 30 * MB)
 

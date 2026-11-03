@@ -141,11 +141,13 @@ std::vector<DupSet> find_dupes(const std::vector<fs::path>& roots, uint64_t min_
   return sets;
 }
 
-int dupes_quarantine(const std::vector<DupSet>& sets, uint64_t& moved_bytes, uint64_t& moved_files) {
+int dupes_quarantine(const std::vector<DupSet>& sets, uint64_t& moved_bytes, uint64_t& moved_files,
+                     const std::set<std::string>& selected) {
   int failed = 0;
   for (auto& s : sets)
     for (size_t i = 0; i < s.paths.size(); ++i) {
       if (i == s.keeper) continue;
+      if (!selected.empty() && !selected.count(norm_key(P(s.paths[i])))) continue;
       std::string err;
       if (q_move(P(s.paths[i]), "duplicate of " + s.paths[s.keeper], s.size, err).empty()) {
         std::fprintf(stderr, "skip %s: %s\n", s.paths[i].c_str(), err.c_str());
@@ -199,7 +201,9 @@ int cmd_dupes(const Args& a) {
   uint64_t qb = 0, qf = 0;
   int qfail = 0;
   bool do_q = a.has("quarantine") && G.yes;
-  if (do_q) qfail = dupes_quarantine(sets, qb, qf);
+  std::set<std::string> selected;
+  for (auto& p : a.all("select")) selected.insert(norm_key(P(p)));
+  if (do_q) qfail = dupes_quarantine(sets, qb, qf, selected);
 
   if (G.json) {
     std::printf("{\"sets\":[");

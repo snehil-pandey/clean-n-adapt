@@ -41,8 +41,8 @@ the notification area. **Both exes must be in the same folder.**
 | Profile chips | Select `quick`, `browser`, `dev`, `gaming` or `full`. Each profile keeps its most recent scan result while the widget stays open. The selected profile is remembered between runs. |
 | **Scan** | `scan --profile <P> --json`. Fills the hero number and Results; arms the action button as **Clean <size>**. |
 | Action button | The contextual, state-dependent button (below). Always asks you to **Confirm**. While a job runs it is **Stop**. |
-| **Duplicates** | `dupes --min-size 10M --json` over Downloads/Documents/Desktop/Pictures/Videos/Music. Arms **Quarantine extras**. |
-| **Leftovers** | `remnants --json`. The displayed candidate rows have checkboxes; only checked rows are quarantined. |
+| **Duplicates** | `dupes --min-size 10M --json` over Downloads/Documents/Desktop/Pictures/Videos/Music. Opens a full review list before any copy is staged for quarantine. |
+| **Leftovers** | `remnants --json`. Opens a full review list before any candidate is staged for quarantine. |
 | **Quarantine** | `quarantine list --json`: shows how much is held and the first few entries. |
 | **Details** | Re-runs the last report in text form and opens it in a read-only Clean-n-Adapt report window. |
 | Auto-clean switch | `auto install --every-hours 6` / `auto remove`, then refreshes `auto status`. Uses the `cna.conf` in the state folder. |
@@ -62,7 +62,7 @@ the notification area. **Both exes must be in the same folder.**
 | A job is running | `Stop` | yes (terminates the running `cna.exe`) |
 
 Running actions: Clean -> `clean --profile <P> --yes --json`; Quarantine extras -> `dupes --min-size 10M --quarantine --yes --json`;
-Quarantine leftovers and Smart advice include only the checked rows as repeated `--select PATH` arguments.
+The native review window lists every parsed candidate with path, category, size, confidence and reason. It supports Select all, Clear all, Inspect, and stages only checked eligible rows as repeated `--select PATH` arguments.
 Apply safe tweaks -> `debloat apply --preset safe --yes --json` (privacy, startup, services, disk; **never** Store apps).
 The Smart advice tile runs `recommend --json`; the Debloat tile runs `debloat scan --json`.
 

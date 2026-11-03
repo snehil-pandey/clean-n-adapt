@@ -25,7 +25,8 @@ struct DupSet { uint64_t size = 0, wasted = 0; std::vector<std::string> paths; s
 std::vector<DupSet> find_dupes(const std::vector<fs::path>& roots, uint64_t min_size, uint64_t max_size, bool default_skips);
 std::vector<fs::path> default_dupe_roots();
 int cmd_dupes(const Args& a);
-int dupes_quarantine(const std::vector<DupSet>& sets, uint64_t& moved_bytes, uint64_t& moved_files);
+int dupes_quarantine(const std::vector<DupSet>& sets, uint64_t& moved_bytes, uint64_t& moved_files,
+                     const std::set<std::string>& selected = {});
 
 // ---- remnants.cpp ----------------------------------------------------------
 struct Remnant { std::string path, kind, reason; uint64_t bytes = 0; int score = 0; double newest_days = 0; bool truncated = false; };

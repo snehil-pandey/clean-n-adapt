@@ -51,7 +51,7 @@ if(WIN32)
   # -------------------------------------------------------------------------------------------
   add_executable(cna-widget WIN32 widget/widget.cpp assets/widget.rc)
   target_include_directories(cna-widget PRIVATE "${CMAKE_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/assets")
-  target_link_libraries(cna-widget PRIVATE gdiplus dwmapi shell32 user32 gdi32 advapi32 ole32 uuid)
+  target_link_libraries(cna-widget PRIVATE gdiplus dwmapi shell32 user32 gdi32 advapi32 ole32 uuid comctl32)
   if(MSVC)
     target_compile_definitions(cna-widget PRIVATE UNICODE _UNICODE)
     target_compile_options(cna-widget PRIVATE /O1 /GL /utf-8 /EHsc /W3)

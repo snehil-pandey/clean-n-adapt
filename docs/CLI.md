@@ -86,7 +86,7 @@ Targets nested inside other targets are merged, so nothing is counted or deleted
 ## `dupes`
 
     cna dupes [paths...] [--min-size 1M] [--max-size N] [--limit 25] [--no-skip]
-              [--quarantine --yes] [--json]
+              [--quarantine --yes] [--select PATH ...] [--json]
     cna dupes --of FILE [paths...]
 
 * With no paths: Downloads, Documents, Desktop, Pictures, Videos, Music of the current user (those that exist).
@@ -95,7 +95,7 @@ Targets nested inside other targets are merged, so nothing is counted or deleted
 * `--no-skip` also scans the folders skipped by default (`.git`, `node_modules`, Recycle Bin, `Windows`, `WinSxS`,
   `Program Files*`, `ProgramData`, `System Volume Information`).
 * Every set shows `keep` (oldest copy, ties -> shorter path) and `dupe` entries.
-* `--quarantine --yes` moves all `dupe` entries to quarantine. The keeper is never moved.
+* `--quarantine --yes` moves all `dupe` entries to quarantine. Add repeated `--select PATH` flags to move only chosen copies. The keeper is never moved.
 * `--of FILE` lists other copies of that one file found under the given paths.
 * Hard links and cloud placeholders are ignored (see `ARCHITECTURE.md`).
 
