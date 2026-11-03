@@ -120,33 +120,27 @@ The installer is designed to:
 - Optionally create a Desktop shortcut.
 - Launch the app after setup.
 
-ZIP/dev install still works when needed:
+The release ZIP is self-contained. Run the native installer beside `cna.exe`:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+.\clean-n-adapt-install.exe
 ```
 
 From a repo checkout, build first:
 
-```bat
-scripts\build-exe.cmd
-scripts\install.cmd
+```powershell
+python scripts\build_exe.py
+dist\clean-n-adapt-install.exe
 ```
 
 ## Build
 
 PyInstaller is no longer used. The app is built with Nuitka.
 
-PowerShell:
+Build with Python:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build-exe.ps1
-```
-
-CMD:
-
-```bat
-scripts\build-exe.cmd
+python scripts\build_exe.py
 ```
 
 Output:
@@ -166,6 +160,14 @@ Compile it with Inno Setup to create:
 ```text
 installer\Clean-n-Adapt-Setup-2.0.0.exe
 ```
+
+Create the release ZIP:
+
+```powershell
+python scripts\package_release.py
+```
+
+The ZIP contains `cna.exe`, `clean-n-adapt-install.exe`, and `clean-n-adapt-uninstall.exe` together. No batch or PowerShell files are used, and end users do not need Python installed.
 
 ## State
 

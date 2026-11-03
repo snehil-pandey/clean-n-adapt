@@ -10,7 +10,8 @@ clean-n-adapt is moving from a CLI-first utility to a desktop-first Windows main
 - Scans are cached in SQLite and refreshed intentionally.
 - Runtime state stays beside the installed executable in `.state`.
 - Build output comes from Nuitka, not PyInstaller.
-- Installer packaging is handled by Inno Setup.
+- Installer packaging is handled by Python scripts and optionally Inno Setup.
+- Batch and PowerShell files are not part of the build/install flow.
 
 ## Product Flow
 
@@ -119,12 +120,17 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Source["Source checkout"] --> Venv[".venv"]
+    Source["Source checkout"] --> BuildPy["scripts/build_exe.py"]
+    BuildPy --> Venv[".venv"]
     Venv --> Nuitka["Nuitka onefile standalone build"]
     Nuitka --> Exe["dist/cna.exe"]
-    Exe --> Inno["Inno Setup script"]
+    Exe --> PackagePy["scripts/package_release.py"]
+    PackagePy --> Zip["release ZIP with native install/uninstall EXEs"]
+    Exe --> Inno["Optional Inno Setup script"]
     Inno --> Setup["Clean-n-Adapt-Setup.exe"]
+    Zip --> InstallExe["clean-n-adapt-install.exe"]
     Setup --> InstallDir["Chosen install directory"]
+    InstallPy --> InstallDir
     InstallDir --> State[".state"]
     InstallDir --> Path["PATH/App Paths"]
     InstallDir --> Shortcuts["Start Menu/Desktop"]
@@ -156,7 +162,9 @@ flowchart TD
     Src --> Actions["actions.py"]
     Src --> Core["core service modules"]
     Repo --> Scripts["scripts"]
-    Scripts --> Build["build-exe.ps1/cmd"]
+    Scripts --> Build["build_exe.py"]
+    Scripts --> Install["install.py / uninstall.py build sources"]
+    Scripts --> Package["package_release.py"]
     Scripts --> Installer["clean-n-adapt.iss"]
     Repo --> Docs["README.md / ARCHITECTURE.md"]
 ```

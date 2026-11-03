@@ -17,6 +17,7 @@ OutputBaseFilename=Clean-n-Adapt-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+ChangesEnvironment=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -27,7 +28,6 @@ Name: "addtopath"; Description: "Add Clean-n-Adapt to PATH"; GroupDescription: "
 
 [Files]
 Source: "..\dist\cna.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "add-to-path.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 Name: "{app}\.state"
@@ -38,7 +38,46 @@ Name: "{autodesktop}\Clean-n-Adapt"; Filename: "{app}\{#MyAppExeName}"; WorkingD
 
 [Registry]
 Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\cna.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{app};{olddata}"; Check: NeedsAddPath(ExpandConstant('{app}')); Tasks: addtopath
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\add-to-path.ps1"" -InstallDir ""{app}"" -Scope Machine"; Tasks: addtopath; Flags: runhidden waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Clean-n-Adapt"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function NormalizePath(Value: String): String;
+begin
+  Result := Lowercase(RemoveBackslashUnlessRoot(ExpandConstant(Value)));
+end;
+
+function NeedsAddPath(InstallPath: String): Boolean;
+var
+  CurrentPath: String;
+  Part: String;
+  Index: Integer;
+begin
+  Result := True;
+  if not RegQueryStringValue(HKLM, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'Path', CurrentPath) then
+    exit;
+
+  InstallPath := NormalizePath(InstallPath);
+  while CurrentPath <> '' do
+  begin
+    Index := Pos(';', CurrentPath);
+    if Index > 0 then
+    begin
+      Part := Copy(CurrentPath, 1, Index - 1);
+      Delete(CurrentPath, 1, Index);
+    end
+    else
+    begin
+      Part := CurrentPath;
+      CurrentPath := '';
+    end;
+
+    if NormalizePath(Part) = InstallPath then
+    begin
+      Result := False;
+      exit;
+    end;
+  end;
+end;
