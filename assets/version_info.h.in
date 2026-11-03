@@ -1,0 +1,2 @@
+#define CNA_VER_STR "@CNA_VERSION@"
+#define CNA_VER_COMMA @CNA_VER_COMMA@

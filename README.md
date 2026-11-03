@@ -1,193 +1,96 @@
-# clean-n-adapt
+# Clean-n-Adapt (`cna`)
 
-Clean-n-Adapt is a Windows maintenance app I started as a small cache-clearing script for my own convenience back in 7th standard. It kept getting upgraded whenever my PC changed, and now it is becoming a proper desktop utility: clean UI first, safe cleanup engine underneath, and only a tiny command line surface for automation.
+A very small Windows cleaner written in C++17: one command-line tool, plus an optional desktop
+widget / tray controller. No Python, Qt, SQLite or other runtime; a hard **125 MB memory cap**.
 
-## Tags
+| Output | Size | What it is |
+|---|---|---|
+| `Clean-n-Adapt-Setup-<version>.exe` | ~0.9 MB | **The installer. This is the only file you distribute.** |
+| `cna.exe` | ~1.5 MB | The engine and command-line interface. Everything real happens here. |
+| `cna-widget.exe` | ~0.3 MB | Windows 11 style widget + tray icon. Runs `cna.exe` for every action. |
 
-`windows` `python` `pyside6` `qt` `nuitka` `inno-setup` `sqlite` `cleanup` `maintenance` `desktop-app`
+![Widget, light theme](docs/img/widget-light-scan.png)
+
+> Screenshots were captured under Wine (see [docs/TESTING.md](docs/TESTING.md)).
+> The empty squares are icon glyphs: Wine has no *Segoe Fluent Icons* font, Windows does.
 
 ## What it does
 
-- Opens a desktop dashboard when `cna.exe` or `cna` is launched.
-- Shows PC status, cleanup estimate, app count, startup count, disk free, memory free, and DB path.
-- Gives clean widget-style actions for quick, browser, developer, gaming, Windows, and full cleanup previews.
-- Keeps scans cached in SQLite so the app does not need to rescan everything every time.
-- Tracks installed apps in a deduplicated inventory.
-- Runs safe boost actions like DNS flush, Store reset, Disk Cleanup, and power-plan switching.
-- Adds a `refresh` action that restarts `explorer.exe` and sends `Win + Ctrl + Shift + B`.
-- Keeps runtime state beside the app in `.state`.
-
-## Command Line
-
-The CLI is intentionally small now. The normal experience is the desktop app.
-
-```powershell
-cna
-cna gui
-cna clean --dry-run
-cna clean --mode browser --dry-run
-cna clean --mode quick --yes
-cna boost
-cna boost dns
-cna boost store
-cna boost disk
-cna boost power
-cna refresh
-cna --version
-```
-
-Allowed command groups:
-
-| Command | Purpose |
-| --- | --- |
-| `cna` | Opens the desktop app. |
-| `cna gui` | Opens the desktop app explicitly. |
-| `cna clean` | Previews or runs cleanup. |
-| `cna boost` | Runs Windows maintenance boost actions. |
-| `cna refresh` | Restarts Explorer and triggers graphics-driver refresh hotkey. |
-
-Cleanup modes:
-
-```powershell
-cna clean --mode quick --dry-run
-cna clean --mode safe --dry-run
-cna clean --mode browser --dry-run
-cna clean --mode dev --dry-run
-cna clean --mode gaming --dry-run
-cna clean --mode windows --dry-run
-cna clean --mode full --dry-run
-```
-
-Deletion requires `--yes`. Without `--yes`, cleanup stays in preview mode.
-
-## Desktop UI
-
-The desktop app is built with PySide6/Qt. It is meant to feel like a small professional Windows utility, not a terminal wrapped in a window.
-
-Main areas:
-
-| Screen | Details |
-| --- | --- |
-| Dashboard | Health, junk estimate, apps, startup, disk, memory, DB location. |
-| Clean | Widget buttons for safe cleanup modes. |
-| Boost | DNS, Store, Disk Cleanup, power plan, safe boost set. |
-| Apps | Cached installed-app inventory. |
-| Monitor | Current disk, memory, indexed cleanup, Downloads summary. |
-| Settings | Install path, download location, PATH scope, shortcut preference. |
-
-There is also a tray menu for quick preview, shell refresh, and opening the dashboard.
-
-## Refresh
-
-`cna refresh` does two things:
-
-1. Restarts `explorer.exe`.
-2. Sends the Windows graphics reset shortcut: `Win + Ctrl + Shift + B`.
-
-This is useful when the shell, taskbar, display driver, or desktop UI feels stuck.
-
-## Boost
-
-Boost does not magically overclock the PC. It only wraps safe Windows maintenance actions:
-
-| Action | What happens |
-| --- | --- |
-| `dns` | Runs `ipconfig /flushdns`. |
-| `store` | Runs `wsreset.exe`. |
-| `disk` | Launches Windows Disk Cleanup. |
-| `power` | Switches to the high-performance power plan when available. |
-| `all` | Runs DNS flush, Store reset, and Disk Cleanup. |
+* **Cache cleaning** with profiles: `quick`, `browser`, `dev`, `gaming`, `windows` (admin), `apps`, `custom`, `full`.
+* **Duplicate finder** that proves equality (size, then head hash, then full SHA-256), ignores hard links,
+  and never reads cloud-only (OneDrive) files. `--of FILE` answers "is there another copy of this file?".
+* **Leftovers of removed apps**: folders in AppData / ProgramData / Program Files that no installed app owns,
+  scored 0-100; or `--app NAME` to list everything one (already uninstalled) app left behind, including
+  registry keys and startup entries (registry is *report-only*).
+* **`explain PATH`**: what a folder is, whether it is safe to delete, which installed app owns it; answers
+  are remembered in a small searchable knowledge base.
+* **Smart advice**: a 192 KB on-device model (no cloud, no LLM) that **learns from your decisions** which folders are safe to clean, explains why, and only ever *moves* things to quarantine. See [docs/MODEL.md](docs/MODEL.md).
+* **Debloat**: privacy/ads tweaks, startup items, a short service list, hibernation and preinstalled Store apps, from allow-lists, with a journal so everything except app removal can be undone. See [docs/DEBLOAT.md](docs/DEBLOAT.md).
+* **Quarantine**: remnants, duplicates and advisor suggestions are *moved*, not deleted, and can be restored or purged later.
+* **Automation**: config file, gating (min hours between runs, free-space trigger), logging, Task Scheduler
+  integration, JSON output and exit codes for scripts.
+* **Memory cap**: Windows Job Object limit *plus* an internal real-usage guard. 300,000 files peaked at 31 MB.
 
 ## Install
 
-The release should provide either a setup EXE or a ZIP package.
+Run `Clean-n-Adapt-Setup-<version>.exe`. It installs for the current user only (no administrator rights, no UAC prompt),
+adds Start Menu entries and an entry in *Settings > Apps*, and can optionally add a desktop shortcut and start the widget
+with Windows. Installing a newer version over an old one upgrades it; uninstalling keeps your settings and quarantined
+files unless you say otherwise. Silent install: `Clean-n-Adapt-Setup-<version>.exe /S`. Details: [docs/BUILD.md](docs/BUILD.md).
 
-Preferred installer:
-
-```text
-Clean-n-Adapt-Setup-2.0.0.exe
-```
-
-The installer is designed to:
-
-- Ask for UAC/admin access.
-- Let the user choose the install folder.
-- Install into `C:\Program Files\cleanNadapt` by default.
-- Create `.state` inside the install folder.
-- Add Clean-n-Adapt to PATH.
-- Register App Paths for `cna.exe`.
-- Create Start Menu shortcuts.
-- Optionally create a Desktop shortcut.
-- Launch the app after setup.
-
-The release ZIP is self-contained. Run the native installer beside `cna.exe`:
-
-```powershell
-.\clean-n-adapt-install.exe
-```
-
-From a repo checkout, build first:
-
-```powershell
-python scripts\build_exe.py
-dist\clean-n-adapt-install.exe
-```
-
-## Build
-
-PyInstaller is no longer used. The app is built with Nuitka.
-
-Build with Python:
-
-```powershell
-python scripts\build_exe.py
-```
-
-Output:
+## Quick start
 
 ```text
-dist\cna.exe
+:: start "Clean-n-Adapt" from the Start Menu for the widget, or use the command line (Start Menu > command line):
+cna scan --profile quick,browser          preview, never deletes
+cna clean --profile quick,browser --yes   delete caches
+cna dupes D:\Downloads --min-size 10M     find duplicates
+cna remnants                              leftovers of removed apps
+cna remnants --app "old game"             what did this app leave behind?
+cna recommend                             what could I clean here, and why? (add --apply --yes)
+cna debloat scan                          Windows bloat: preview; then: cna debloat apply --preset safe --yes
+cna explain "C:\Users\me\AppData\Local\Foo"
+cna config init                           write cna.conf
+cna auto install --every-hours 6          schedule background cleaning
 ```
 
-Installer script:
+Nothing is deleted without `--yes`. See the [CLI reference](docs/CLI.md) for every command.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Goals, components, data flow, memory design, safety layers, state on disk, design decisions, extension points |
+| [docs/MODEL.md](docs/MODEL.md) | The on-device model: what it learns, the safety gate, measured accuracy and its caveats |
+| [docs/DEBLOAT.md](docs/DEBLOAT.md) | Debloat catalogue (tweaks, services, apps), presets, journal and undo, testing status |
+| [docs/CLI.md](docs/CLI.md) | All commands and options, built-in cleaning rules, exit codes, JSON output formats |
+| [docs/CONFIG.md](docs/CONFIG.md) | `cna.conf` keys, state folder, environment variables, scheduling |
+| [docs/SAFETY.md](docs/SAFETY.md) | What is protected, what can go wrong, how to undo things |
+| [docs/BUILD.md](docs/BUILD.md) | Building, the installer (what it does, silent flags), versioning, signing, distribution |
+| [docs/WIDGET.md](docs/WIDGET.md) | Widget and tray behaviour, how it talks to the CLI, theming |
+| [docs/TESTING.md](docs/TESTING.md) | What was verified and what was not, test scripts, a 15-minute Windows checklist |
+| [CHANGELOG.md](CHANGELOG.md) | Release notes |
+
+## Build (source -> installer)
 
 ```text
-scripts\clean-n-adapt.iss
+powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1     :: Windows: CMake + NSIS   -> dist\Clean-n-Adapt-Setup-<ver>.exe
+scripts/build-mingw.sh                                                :: Linux/MSYS2: MinGW-w64 + NSIS, no CMake needed
 ```
 
-Compile it with Inno Setup to create:
+Other routes (plain CMake, CMake cross-compile, Linux-native CLI, GitHub Actions) and what the installer does:
+[docs/BUILD.md](docs/BUILD.md). The version lives in the `VERSION` file.
 
-```text
-installer\Clean-n-Adapt-Setup-2.0.0.exe
-```
+## Honest status
 
-Create the release ZIP:
+**Tested:** the CLI logic with 21 + 19 + 21 + 35 automated checks on Linux plus a hand-built 30-folder model check and a 300,000-file stress test;
+the Windows builds under Wine, including the **real registry code** (debloat apply and exact undo verified with an independent `reg query`),
+the widget's scan / clean / quarantine / Smart advice / Debloat flows, and the installer (install, upgrade, uninstall keeping your data).
 
-```powershell
-python scripts\package_release.py
-```
+**Not yet tested on real Windows:** the OS-enforced memory cap, registry app inventory, Task Scheduler, tray menu and notifications, DPI scaling,
+the PowerShell Store-app removal, service changes and `powercfg`. **The model's accuracy on real machines is unmeasured**: it starts from a synthetic seed
+written by the author and improves only as you teach it. Full list and a Windows checklist: [docs/TESTING.md](docs/TESTING.md).
 
-The ZIP contains `cna.exe`, `clean-n-adapt-install.exe`, and `clean-n-adapt-uninstall.exe` together. No batch or PowerShell files are used, and end users do not need Python installed.
+## Licence
 
-## State
-
-Runtime state is stored beside the installed executable:
-
-```text
-<install folder>\.state\clean-n-adapt.db
-```
-
-That database stores scan results, app inventory, settings, history, and cleanup results. It does not store file contents.
-
-## Safety
-
-- Cleanup previews by default.
-- Actual deletion requires explicit confirmation through the UI or `--yes` in CLI automation.
-- Admin-only paths are skipped unless the app is elevated.
-- App removal remains official-uninstaller-only.
-- Scan/index data is cached and refreshed intentionally.
-- Dangerous roots and important system folders are blocked by the cleanup engine.
-
-## Architecture
-
-See [ARCHITECTURE.md](ARCHITECTURE.md).
+No licence has been chosen yet; add a `LICENSE` file before publishing.

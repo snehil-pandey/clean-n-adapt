@@ -1,0 +1,24 @@
+# Builds the Windows exes and the installer on every push and uploads the installer as a downloadable artifact.
+# (Written but not run yet: first run happens when you push the project to GitHub.)
+name: build-windows
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+      - name: Build (exes + installer)
+        shell: pwsh
+        run: ./scripts/build-windows.ps1
+      - name: Smoke test the CLI
+        shell: pwsh
+        run: python tests/smoke.py dist/cna.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Clean-n-Adapt-installer
+          path: dist/Clean-n-Adapt-Setup-*.exe
