@@ -58,7 +58,7 @@ try:
 
     # --- learning from a restore -----------------------------------------------------------------
     q = js("quarantine", "list")
-    ent = next(e for e in q["entries"] if e["original"].endswith("discord/Cache"))
+    ent = next(e for e in q["entries"] if "Cache" in e["original"] or "Logs" in e["original"])
     before = js("model", "status")["feedback"]
     out = run("quarantine", "restore", ent["id"]).stdout
     check("restore brings the folder back",           os.path.exists(ent["original"]))
