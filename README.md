@@ -54,13 +54,14 @@ cna config init                           write cna.conf
 cna auto install --every-hours 6          schedule background cleaning
 ```
 
-Nothing is deleted without `--yes`. See the [CLI reference](docs/CLI.md) for every command.
+Nothing is deleted without `--yes`. Start with [Getting Started](docs/GETTING_STARTED.md) for the recommended order of operations, then use the [CLI reference](docs/CLI.md) for every command.
 
 ## Documentation
 
 | Document | Contents |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Goals, components, data flow, memory design, safety layers, state on disk, design decisions, extension points |
+| [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Installation, first-run workflow, common tasks, recovery, automation, and safe debloat guidance |
 | [docs/MODEL.md](docs/MODEL.md) | The on-device model: what it learns, the safety gate, measured accuracy and its caveats |
 | [docs/DEBLOAT.md](docs/DEBLOAT.md) | Debloat catalogue (tweaks, services, apps), presets, journal and undo, testing status |
 | [docs/CLI.md](docs/CLI.md) | All commands and options, built-in cleaning rules, exit codes, JSON output formats |
@@ -83,13 +84,9 @@ Other routes (plain CMake, CMake cross-compile, Linux-native CLI, GitHub Actions
 
 ## Honest status
 
-**Tested:** the CLI logic with 21 + 19 + 21 + 35 automated checks on Linux plus a hand-built 30-folder model check and a 300,000-file stress test;
-the Windows builds under Wine, including the **real registry code** (debloat apply and exact undo verified with an independent `reg query`),
-the widget's scan / clean / quarantine / Smart advice / Debloat flows, and the installer (install, upgrade, uninstall keeping your data).
+**Locally verified on Windows (MSVC, 2026-11-03):** `cna.exe` and `cna-widget.exe` compile successfully; the isolated cache/duplicate/remnant smoke suite passes 19/19.
 
-**Not yet tested on real Windows:** the OS-enforced memory cap, registry app inventory, Task Scheduler, tray menu and notifications, DPI scaling,
-the PowerShell Store-app removal, service changes and `powercfg`. **The model's accuracy on real machines is unmeasured**: it starts from a synthetic seed
-written by the author and improves only as you teach it. Full list and a Windows checklist: [docs/TESTING.md](docs/TESTING.md).
+**Important limits:** the Windows fake-registry test backend is not implemented, so `tests/debloat_check.py` must not be run on a real Windows profile. The installer was not built in this local validation because NSIS was unavailable. The OS-enforced memory cap, registry app inventory, Task Scheduler, tray menu, notifications, DPI scaling, Store-app removal, service changes, `powercfg`, and model accuracy on real machines remain unverified here. Full status and a Windows checklist: [docs/TESTING.md](docs/TESTING.md).
 
 ## Licence
 

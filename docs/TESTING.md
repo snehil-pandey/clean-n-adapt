@@ -31,7 +31,7 @@ same-size-different file excluded, hard link not counted, `--of`), quarantine ro
 not flagged, `--app`), `explain` + knowledge base, `--mem-cap` validation. Result on Linux: **19 passed, 0 failed.**
 Run on Windows: *not yet done* (the script avoids POSIX-only calls, but that is untested).
 
-### 1c. Model, advisor and debloat suites (Linux, no installation needed)
+### 1c. Model, advisor and debloat suites (Linux/POSIX only, no installation needed)
 
     python3 tests/model_check.py ./cna        python3 tests/advisor_check.py ./cna        python3 tests/debloat_check.py ./cna
 
@@ -44,6 +44,10 @@ Run on Windows: *not yet done* (the script avoids POSIX-only calls, but that is 
 
 The first run of `model_check.py` found a real defect (a `Credentials` folder and Telegram `tdata` were called regenerable because their hex-named
 files look like cache blobs). It led to hard-negative training data and the non-learned safety gate described in MODEL.md.
+
+> Windows test warning: `CNA_FAKE_REGISTRY`, `CNA_FAKE_EXEC`, and `CNA_FAKE_ADMIN` are implemented by the POSIX platform shim. The Windows build currently uses the real registry and command path instead. Do **not** run `tests/debloat_check.py` against `cna.exe` on a normal Windows profile until a Windows fake backend is added. The test invokes `debloat apply --yes` and clears its temporary journal during the scenario.
+
+> Windows assertion note: `tests/advisor_check.py` has one path-separator-sensitive Discord assertion. It should normalize `\\` to `/` before comparing paths; the current result is not proof that Discord cache classification is wrong.
 
 ## 2. Stress and correctness at scale (Linux)
 

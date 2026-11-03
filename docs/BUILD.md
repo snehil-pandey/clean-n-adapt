@@ -7,7 +7,7 @@ Everything is built from this source tree. The result you distribute is **one fi
 
 | Output (in `dist/`) | What it is |
 |---|---|
-| `Clean-n-Adapt-Setup-0.1.0.exe` | The installer (NSIS). **This is what you give to users.** |
+| `Clean-n-Adapt-Setup-<version>.exe` | The installer (NSIS). **This is what you give to users.** |
 | `cna.exe`, `cna-widget.exe` | The two programs, also available loose for testing. |
 
 The version comes from the one-line file `VERSION` (three numbers, e.g. `0.1.0`). It is injected into the exes
@@ -26,7 +26,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 ```
 
 `cmake --build` also builds the installer automatically whenever `makensis` is found (the `installer` target is part
-of `ALL`). Without NSIS it prints a warning and still builds the exes. *MSVC path: written, not yet compiled.*
+of `ALL`). Without NSIS it prints a warning and still builds the exes. The MSVC Release build was compiled locally on
+2026-11-03; the widget emitted warnings for legacy string APIs that should be resolved before release.
 
 ### B. MinGW-w64 + NSIS without CMake (Linux, macOS, or MSYS2)
 
@@ -78,8 +79,8 @@ artifact. (Not run yet; it first runs when the project is pushed to GitHub.)
 Silent (unattended) use, e.g. for deployment scripts:
 
 ```text
-Clean-n-Adapt-Setup-0.1.0.exe /S                       install with defaults
-Clean-n-Adapt-Setup-0.1.0.exe /S /D=D:\Tools\cna       custom folder (/D must be the last argument)
+Clean-n-Adapt-Setup-<version>.exe /S                       install with defaults
+Clean-n-Adapt-Setup-<version>.exe /S /D=D:\Tools\cna       custom folder (/D must be the last argument)
 "%LOCALAPPDATA%\Programs\Clean-n-Adapt\Uninstall.exe" /S
 ```
 
@@ -97,7 +98,7 @@ Clean-n-Adapt-Setup-0.1.0.exe /S /D=D:\Tools\cna       custom folder (/D must be
 ## 5. Distributing
 
 * Give people only the `Clean-n-Adapt-Setup-<version>.exe`. Publish its SHA-256 next to it
-  (`certutil -hashfile Clean-n-Adapt-Setup-0.1.0.exe SHA256`) so downloads can be verified.
+  (`certutil -hashfile Clean-n-Adapt-Setup-<version>.exe SHA256`) so downloads can be verified.
 * The installer and exes are **unsigned**, so Windows SmartScreen shows "Windows protected your PC" on first run
   (More info > Run anyway). Removing that needs a code-signing certificate and `signtool sign` on the installer *and*
   both exes; it is not set up here.
