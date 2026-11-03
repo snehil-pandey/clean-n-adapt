@@ -57,8 +57,12 @@ VIAddVersionKey "LegalCopyright"  "Copyright (C) ${PUBLISHER}"
 !define MUI_ICON   "${ROOT}/assets/cna.ico"
 !define MUI_UNICON "${ROOT}/assets/cna.ico"
 !define MUI_ABORTWARNING
-!define MUI_WELCOMEFINISHPAGE_BITMAP   "${ROOT}/assets/installer-side.bmp"
-!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${ROOT}/assets/installer-side.bmp"
+; The branded sidebar is optional so source-only checkouts and release builds
+; remain packageable even when artwork is intentionally omitted.
+!if /FileExists "${ROOT}/assets/installer-side.bmp"
+  !define MUI_WELCOMEFINISHPAGE_BITMAP   "${ROOT}/assets/installer-side.bmp"
+  !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${ROOT}/assets/installer-side.bmp"
+!endif
 !define MUI_FINISHPAGE_RUN "$INSTDIR\cna-widget.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Start ${APP} now"
 
