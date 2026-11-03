@@ -16,7 +16,7 @@ static void usage() {
       "Finding things\n"
       "  cna dupes [paths...] [--min-size 1M] [--quarantine --yes]\n"
       "  cna dupes --of FILE [paths...]      is there another copy of this file?\n"
-      "  cna remnants [--min-score 65] [--apps-file F] [--quarantine --yes]\n"
+      "  cna remnants [--min-score 65] [--apps-file F] [--quarantine --yes] [--select PATH ...]\n"
       "  cna remnants --app NAME             everything an (uninstalled) app left behind\n"
       "  cna explain PATH [--refresh] [--llm] [--no-store]\n"
       "  cna kb [list|search WORDS|forget PATH]\n\n"

@@ -38,13 +38,13 @@ the notification area. **Both exes must be in the same folder.**
 
 | Control | What it does (the `cna` command it runs) |
 |---|---|
-| Profile chips | Select `quick`, `browser`, `dev`, `gaming` or `full`. Changing the profile clears the current result. Remembered between runs. |
+| Profile chips | Select `quick`, `browser`, `dev`, `gaming` or `full`. Each profile keeps its most recent scan result while the widget stays open. The selected profile is remembered between runs. |
 | **Scan** | `scan --profile <P> --json`. Fills the hero number and Results; arms the action button as **Clean <size>**. |
 | Action button | The contextual, state-dependent button (below). Always asks you to **Confirm**. While a job runs it is **Stop**. |
 | **Duplicates** | `dupes --min-size 10M --json` over Downloads/Documents/Desktop/Pictures/Videos/Music. Arms **Quarantine extras**. |
-| **Leftovers** | `remnants --json`. Arms **Quarantine leftovers**. |
+| **Leftovers** | `remnants --json`. The displayed candidate rows have checkboxes; only checked rows are quarantined. |
 | **Quarantine** | `quarantine list --json`: shows how much is held and the first few entries. |
-| **Details** | Re-runs the last report in text form and opens it in your default `.txt` editor (`%TEMP%\cna-report.txt`). |
+| **Details** | Re-runs the last report in text form and opens it in a read-only Clean-n-Adapt report window. |
 | Auto-clean switch | `auto install --every-hours 6` / `auto remove`, then refreshes `auto status`. Uses the `cna.conf` in the state folder. |
 | Pin | Keeps the card above other windows. Remembered. |
 
@@ -62,7 +62,7 @@ the notification area. **Both exes must be in the same folder.**
 | A job is running | `Stop` | yes (terminates the running `cna.exe`) |
 
 Running actions: Clean -> `clean --profile <P> --yes --json`; Quarantine extras -> `dupes --min-size 10M --quarantine --yes --json`;
-Quarantine leftovers -> `remnants --quarantine --yes --json`; Quarantine (Smart advice) -> `recommend --apply --yes --json`;
+Quarantine leftovers and Smart advice include only the checked rows as repeated `--select PATH` arguments.
 Apply safe tweaks -> `debloat apply --preset safe --yes --json` (privacy, startup, services, disk; **never** Store apps).
 The Smart advice tile runs `recommend --json`; the Debloat tile runs `debloat scan --json`.
 
@@ -71,7 +71,7 @@ The Smart advice tile runs `recommend --json`; the Debloat tile runs `debloat sc
 | Gesture | Result |
 |---|---|
 | Left click | Show / hide the widget |
-| Right click | Menu: **Show/Hide widget**, **Quick clean now** (`clean --profile quick --yes`), **Run auto-clean now** (`auto run --force`), **Keep widget on top**, **Start with Windows**, **Remove bloat apps...** (warning dialog; `debloat apply --preset safe --only apps --yes`), **Undo debloat changes...** (confirmation; `debloat undo --all --yes`), **Exit** |
+| Right click | Menu: **Show/Hide widget**, **Quick clean now** (`clean --profile quick --yes`), **Run auto-clean now** (`auto run --force`), **Keep widget on top**, **Start with Windows**, **Review bloat apps...** (opens the reversible debloat scan), **Undo debloat changes...** (confirmation; `debloat undo --all --yes`), **Exit** |
 
 When the widget is hidden (or for Quick clean), results appear as a tray notification, e.g. "Freed 145.0 MB".
 If Explorer restarts, the tray icon is restored automatically. Windows may place new tray icons in the overflow
@@ -82,14 +82,14 @@ If Explorer restarts, the tray icon is restored automatically. Windows may place
 * Follows the system **light/dark** mode and **accent colour**, switching live; rounded corners, thin border and shadow
   on Windows 11 (on older Windows the same card is drawn square).
 * Per-monitor DPI aware; moving between monitors rescales.
-* Segoe UI Variable / Segoe Fluent Icons when present, with fallbacks. Solid surfaces (no Mica/Acrylic transparency).
+* Segoe UI Variable / Segoe Fluent Icons when present, with fallbacks. A light layered translucency keeps the widget visually separate without reducing readability.
 
 ## Files and registry the widget touches
 
 | What | Where |
 |---|---|
 | Settings | `widget.ini` in `%LOCALAPPDATA%\cna\` (or in `<exe folder>\.state\` in portable mode): `x`, `y`, `pinned`, `profile`, `visible` |
-| Reports for "Details" | `%TEMP%\cna-report.txt` |
+| Reports for "Details" | Kept in memory and shown in a read-only report window; no temporary Notepad file is created. |
 | Autostart | `HKCU\...\Run\cna-widget` (only if enabled) |
 | Read-only | `HKCU\...\Themes\Personalize\AppsUseLightTheme`, `HKCU\Software\Microsoft\Windows\DWM\AccentColor` |
 

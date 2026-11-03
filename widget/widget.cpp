@@ -30,7 +30,7 @@ using namespace Gdiplus;
 #define WM_TRAY (WM_APP + 2)
 #define WM_SHOWME (WM_APP + 3)
 enum { T_ANIM = 1, T_CONFIRM = 2, T_DISK = 3 };
-enum { ID_NONE = 0, ID_CLOSE, ID_PIN, ID_PROF = 10, ID_SCAN = 20, ID_ACTION, ID_DUPES = 30, ID_LEFT, ID_QUAR, ID_SMART, ID_DEBLOAT, ID_DETAILS = 40, ID_AUTO };
+enum { ID_NONE = 0, ID_CLOSE, ID_PIN, ID_PROF = 10, ID_SCAN = 20, ID_ACTION, ID_DUPES = 30, ID_LEFT, ID_QUAR, ID_SMART, ID_DEBLOAT, ID_DETAILS = 40, ID_AUTO, ID_RESULT_ROW = 60 };
 enum { CM_SHOW = 1, CM_QUICK, CM_AUTORUN, CM_PIN, CM_STARTUP, CM_UNDO_DEBLOAT, CM_REMOVE_APPS, CM_EXIT };
 enum Kind { K_NONE, K_SCAN, K_CLEAN, K_QUICK, K_DUPES, K_LEFT, K_QUAR, K_QDUPES, K_QLEFT, K_AUTOSTAT, K_AUTOSET, K_AUTORUN, K_DETAILS, K_SMART, K_QSMART, K_DEBLOAT, K_DEBLOAT_APPLY, K_DEBLOAT_UNDO, K_DEBLOAT_APPS };
 
@@ -54,9 +54,21 @@ static ULONGLONG g_t0 = 0;
 
 struct Pending { bool on = false; std::wstring label, args; int kind = K_NONE; };
 static Pending g_pending;
+struct ProfileResult {
+  bool valid = false;
+  Pending pending;
+  std::wstring status, heroBig, heroCap, heroMeta, reportArgs;
+  std::vector<std::pair<std::wstring, std::wstring>> lines;
+};
+static ProfileResult g_profileResults[5];
 static std::wstring g_note;
 static std::wstring g_status = L"Ready", g_sub = L"", g_heroBig = L"\u2014", g_heroCap = L"Run a scan to see what can be cleaned", g_heroMeta, g_reportArgs;
 static std::vector<std::pair<std::wstring, std::wstring>> g_lines;
+static bool g_selectable = false, g_profileResultShown = false;
+static std::vector<std::wstring> g_selectPaths;
+static std::vector<bool> g_selected;
+static std::wstring g_selectBaseArgs;
+static int g_selectKind = K_NONE;
 static uint64_t g_diskFree = 0, g_diskTotal = 0;
 static bool g_diskOk = false;
 
@@ -270,6 +282,9 @@ static void layout() {
   add(ID_SMART, 16, 374, 150, 56);
   add(ID_DEBLOAT, 174, 374, 150, 56);
   add(ID_DETAILS, kW - 16 - 12 - 64, 444, 64, 20);
+  if (g_selectable) {
+    for (size_t i = 0; i < g_lines.size() && i < 3; ++i) add(ID_RESULT_ROW + (int)i, 24, 466 + (float)i * 17, 280, 17);
+  }
   add(ID_AUTO, 16, 528, 308, 36);
 }
 static bool enabled(int id) {
@@ -423,7 +438,15 @@ static void paint(HDC hdc) {
     } else {
       float y = 466;
       for (size_t i = 0; i < g_lines.size() && i < 3; ++i, y += 17) {
-        txt(g, g_lines[i].first, fSmall, R(28, y, 200, 17), T.text);
+        if (g_selectable && i < g_selected.size()) {
+          RectF check = R(28, y + 2, 12, 12);
+          Color edge = g_selected[i] ? T.accent : T.sub;
+          box(g, check, SF(3), g_selected[i] ? T.accent : T.card, &edge);
+          if (g_selected[i]) txt(g, L"\uE73E", fIconS, check, T.accentText, StringAlignmentCenter);
+          txt(g, g_lines[i].first, fSmall, R(46, y, 182, 17), T.text);
+        } else {
+          txt(g, g_lines[i].first, fSmall, R(28, y, 200, 17), T.text);
+        }
         txt(g, g_lines[i].second, fSmall, R(228, y, 84, 17), T.sub, StringAlignmentFar);
       }
     }
@@ -521,6 +544,9 @@ static void enable_dark_menus() {
   if (fl) fl();
 }
 static void apply_dwm() {
+  LONG_PTR style = GetWindowLongPtrW(g_hwnd, GWL_EXSTYLE);
+  SetWindowLongPtrW(g_hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED);
+  SetLayeredWindowAttributes(g_hwnd, 0, 248, LWA_ALPHA);
   int pref = 2; // DWMWCP_ROUND
   DwmSetWindowAttribute(g_hwnd, 33, &pref, sizeof pref);
   BOOL dark = T.dark;
@@ -604,6 +630,17 @@ static void start_job(int kind, const std::wstring& args, const std::wstring& bu
   invalidate();
 }
 
+static void show_report_window(const std::string& report) {
+  std::wstring text = W(report);
+  HWND w = CreateWindowExW(WS_EX_TOOLWINDOW, L"EDIT", text.c_str(),
+                           WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
+                           CW_USEDEFAULT, CW_USEDEFAULT, 760, 560, g_hwnd, nullptr, g_inst, nullptr);
+  if (w) {
+    SetWindowTextW(w, L"Clean-n-Adapt report");
+    SendMessageW(w, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
+  }
+}
+
 static std::wstring prof_arg() { return kProfArgs[g_profile]; }
 
 static void clear_result() {
@@ -611,7 +648,37 @@ static void clear_result() {
   g_lines.clear();
   g_heroBig = L"\u2014"; g_heroCap = L"Run a scan to see what can be cleaned"; g_heroMeta.clear();
   g_reportArgs.clear();
+  g_selectable = false; g_selectPaths.clear(); g_selected.clear(); g_selectBaseArgs.clear(); g_selectKind = K_NONE; g_profileResultShown = false;
   set_status(L"Ready");
+}
+
+static void save_profile_result() {
+  if (!g_profileResultShown) return;
+  ProfileResult& r = g_profileResults[g_profile];
+  r.valid = true; r.pending = g_pending; r.status = g_status; r.heroBig = g_heroBig; r.heroCap = g_heroCap;
+  r.heroMeta = g_heroMeta; r.reportArgs = g_reportArgs; r.lines = g_lines;
+}
+
+static void restore_profile_result(int profile) {
+  const ProfileResult& r = g_profileResults[profile];
+  if (!r.valid) { clear_result(); return; }
+  g_pending = r.pending; g_status = r.status; g_heroBig = r.heroBig; g_heroCap = r.heroCap;
+  g_heroMeta = r.heroMeta; g_reportArgs = r.reportArgs; g_lines = r.lines;
+  g_selectable = false; g_selectPaths.clear(); g_selected.clear(); g_selectBaseArgs.clear(); g_selectKind = K_NONE;
+  g_profileResultShown = true;
+}
+
+static void refresh_selection_action() {
+  if (!g_selectable || g_selectKind == K_NONE) return;
+  int n = 0;
+  std::wstring args = g_selectBaseArgs;
+  for (size_t i = 0; i < g_selected.size() && i < g_selectPaths.size(); ++i) {
+    if (!g_selected[i]) continue;
+    args += L" --select \"" + g_selectPaths[i] + L"\"";
+    ++n;
+  }
+  if (!n) { g_pending = Pending(); set_status(L"Select at least one item to continue"); return; }
+  g_pending = {true, L"Quarantine " + std::to_wstring(n) + (n == 1 ? L" item" : L" items"), args, g_selectKind};
 }
 
 static void on_done(JobData* j) {
@@ -621,6 +688,7 @@ static void on_done(JobData* j) {
   bool json = !o.empty() && (o.find('{') != std::string::npos || j->kind == K_DEBLOAT_UNDO);
   int kind = j->kind;
   if (!silent) g_statusErr = false;
+  if (kind != K_SCAN && kind != K_DETAILS && kind != K_AUTOSTAT) g_profileResultShown = false;
 
   auto fail = [&](const wchar_t* what) {
     if (!j->started) set_status(L"cna.exe not found next to the widget", true);
@@ -652,12 +720,8 @@ static void on_done(JobData* j) {
   } else if (kind == K_DETAILS) {
     if (!j->started || o.empty()) fail(L"Report");
     else {
-      wchar_t tmp[MAX_PATH];
-      GetTempPathW(MAX_PATH, tmp);
-      std::wstring path = std::wstring(tmp) + L"cna-report.txt";
-      HANDLE f = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-      if (f != INVALID_HANDLE_VALUE) { DWORD w; WriteFile(f, o.data(), (DWORD)o.size(), &w, nullptr); CloseHandle(f); ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL); }
-      set_status(L"Report opened");
+      show_report_window(o);
+      set_status(L"Report opened in Clean-n-Adapt");
     }
   } else if (!json) {
     fail(kind == K_SCAN ? L"Scan" : kind == K_DUPES ? L"Duplicate search" : kind == K_LEFT ? L"Leftover search" : L"Action");
@@ -678,6 +742,7 @@ static void on_done(JobData* j) {
     g_heroCap = std::wstring(L"can be reclaimed \u00B7 ") + kProfNames[g_profile] + L" profile";
     g_heroMeta = std::to_wstring(files) + L" files";
     g_reportArgs = L"scan --profile " + prof_arg() + L" -v";
+    g_selectable = false; g_selectPaths.clear(); g_selected.clear(); g_selectBaseArgs.clear(); g_selectKind = K_NONE; g_profileResultShown = true;
     size_t sk = kpos(o, "skipped_needs_admin");
     size_t nadmin = 0;
     if (sk != std::string::npos) { size_t e = o.find(']', sk); if (e != std::string::npos && e > sk + 1) nadmin = count_of(o.substr(sk, e - sk), "\",\"") + 1; }
@@ -720,19 +785,28 @@ static void on_done(JobData* j) {
     size_t n = count_of(o, "\"score\":");
     uint64_t total = numat(o, kpos(o, "total_bytes"));
     g_lines.clear();
+    g_selectPaths.clear(); g_selected.clear(); g_selectable = false; g_selectKind = K_NONE;
     size_t p = 0;
     int shown = 0;
     while (shown < 3 && (p = o.find("{\"path\":\"", p)) != std::string::npos) {
       std::string path = strat(o, p + 8);
       uint64_t sc = numat(o, kpos(o, "score", p)), b = numat(o, kpos(o, "bytes", p));
       g_lines.push_back({leaf(path) + L"  [" + std::to_wstring(sc) + L"]", human(b)});
+      g_selectPaths.push_back(W(path)); g_selected.push_back(true);
       p += 9; ++shown;
     }
     g_heroBig = human(total);
     g_heroCap = std::to_wstring(n) + (n == 1 ? L" folder left behind by removed apps" : L" folders left behind by removed apps");
     g_heroMeta.clear();
     g_reportArgs = L"remnants";
-    if (n) { g_pending = {true, L"Quarantine leftovers", L"remnants --quarantine --yes --json", K_QLEFT}; set_status(L"Reversible: items move to quarantine"); }
+    if (n) {
+      g_selectable = !g_selectPaths.empty();
+      g_selectBaseArgs = L"remnants --quarantine --yes --json";
+      g_selectKind = K_QLEFT;
+      g_pending = {true, L"Quarantine leftovers", g_selectBaseArgs, K_QLEFT};
+      refresh_selection_action();
+      set_status(L"Choose the rows to quarantine - all moves are reversible");
+    }
     else { g_pending = Pending(); set_status(L"No leftovers found"); }
   } else if (kind == K_QUAR) {
     uint64_t total = numat(o, kpos(o, "total_bytes"));
@@ -767,13 +841,24 @@ static void on_done(JobData* j) {
       (r.action == "clean" ? clean_rows : review_rows).push_back(r);
       p += 9;
     }
-    g_lines.clear();
-    for (auto& r : (clean_rows.empty() ? review_rows : clean_rows)) { g_lines.push_back({leaf(r.path), human(r.b)}); if (g_lines.size() >= 3) break; }
+    g_lines.clear(); g_selectPaths.clear(); g_selected.clear(); g_selectable = false; g_selectKind = K_NONE;
+    for (auto& r : clean_rows) {
+      g_lines.push_back({leaf(r.path), human(r.b)}); g_selectPaths.push_back(W(r.path)); g_selected.push_back(true);
+      if (g_lines.size() >= 3) break;
+    }
+    if (g_lines.empty()) for (auto& r : review_rows) { g_lines.push_back({leaf(r.path), human(r.b)}); if (g_lines.size() >= 3) break; }
     g_heroBig = human(clean_b);
     g_heroCap = std::to_wstring(clean_rows.size()) + (clean_rows.size() == 1 ? L" folder suggested \u00B7 " : L" folders suggested \u00B7 ") + human(review_b) + L" to review";
     g_heroMeta.clear();
     g_reportArgs = L"recommend --limit 100";
-    if (clean_b > 0) { g_pending = {true, L"Quarantine " + human(clean_b), L"recommend --apply --yes --json", K_QSMART}; set_status(L"Suggestions move to quarantine (restorable)"); }
+    if (clean_b > 0) {
+      g_selectable = !g_selectPaths.empty();
+      g_selectBaseArgs = L"recommend --apply --yes --json";
+      g_selectKind = K_QSMART;
+      g_pending = {true, L"Quarantine suggestions", g_selectBaseArgs, K_QSMART};
+      refresh_selection_action();
+      set_status(L"Choose safe suggestions to quarantine - nothing is deleted");
+    }
     else { g_pending = Pending(); set_status(L"Nothing safe to suggest right now"); }
   } else if (kind == K_QSMART) {
     uint64_t b = numat(o, kpos(o, "quarantined_bytes")), n = numat(o, kpos(o, "quarantined"));
@@ -814,6 +899,7 @@ static void on_done(JobData* j) {
     g_heroBig = std::to_wstring(n); g_heroCap = L"debloat changes restored"; g_heroMeta.clear();
     set_status(L"Restored the previous settings");
   }
+  layout();
   delete j;
   invalidate();
 }
@@ -823,7 +909,21 @@ static void on_done(JobData* j) {
 // ---------------------------------------------------------------------------------------------
 static void do_click(int id) {
   if (id >= ID_PROF && id < ID_PROF + 5) {
-    if (!g_busy && g_profile != id - ID_PROF) { g_profile = id - ID_PROF; clear_result(); save_settings(); }
+    if (!g_busy && g_profile != id - ID_PROF) {
+      save_profile_result();
+      g_profile = id - ID_PROF;
+      restore_profile_result(g_profile);
+      layout(); save_settings();
+    }
+    return;
+  }
+  if (id >= ID_RESULT_ROW && id < ID_RESULT_ROW + 3) {
+    size_t row = (size_t)(id - ID_RESULT_ROW);
+    if (g_selectable && row < g_selected.size()) {
+      g_selected[row] = !g_selected[row];
+      refresh_selection_action();
+    }
+    invalidate();
     return;
   }
   switch (id) {
@@ -864,7 +964,7 @@ static void tray_menu() {
   AppendMenuW(m, MF_STRING | (g_pinned ? MF_CHECKED : 0), CM_PIN, L"Keep widget on top");
   AppendMenuW(m, MF_STRING | (startup_enabled() ? MF_CHECKED : 0), CM_STARTUP, L"Start with Windows");
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(m, MF_STRING | (g_busy ? MF_GRAYED : 0), CM_REMOVE_APPS, L"Remove bloat apps\u2026");
+  AppendMenuW(m, MF_STRING | (g_busy ? MF_GRAYED : 0), CM_REMOVE_APPS, L"Review bloat apps\u2026");
   AppendMenuW(m, MF_STRING | (g_busy ? MF_GRAYED : 0), CM_UNDO_DEBLOAT, L"Undo debloat changes\u2026");
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(m, MF_STRING, CM_EXIT, L"Exit");
@@ -955,8 +1055,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case CM_PIN: set_pinned(!g_pinned); break;
         case CM_STARTUP: set_startup(!startup_enabled()); break;
         case CM_REMOVE_APPS:
-          if (MessageBoxW(h, L"Remove preinstalled Store apps such as News, Solitaire, Tips, Feedback Hub and promoted games?\n\nThis is the one change Clean-n-Adapt cannot undo. You can reinstall any app from the Microsoft Store.", L"Remove bloat apps", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES)
-            start_job(K_DEBLOAT_APPS, L"debloat apply --preset safe --only apps --yes --json", L"Removing apps\u2026");
+          if (!g_busy) start_job(K_DEBLOAT, L"debloat scan --json", L"Reviewing bloat apps\u2026");
           break;
         case CM_UNDO_DEBLOAT:
           if (MessageBoxW(h, L"Restore the previous values for every debloat change (privacy tweaks, startup items, services)?\n\nRemoved Store apps are not affected.", L"Undo debloat changes", MB_YESNO | MB_ICONQUESTION) == IDYES)

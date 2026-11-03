@@ -105,7 +105,7 @@ JSON:
 
 ## `remnants`
 
-    cna remnants [--min-score 65] [--apps-file FILE] [--quarantine --yes] [--json]
+    cna remnants [--min-score 65] [--apps-file FILE] [--quarantine --yes] [--select PATH ...] [--json]
     cna remnants --app NAME [--depth 3] [--apps-file FILE] [--quarantine --yes] [--json]
 
 **Without `--app`** - finds folders in AppData / ProgramData / Program Files that no installed app owns, with a
@@ -167,13 +167,13 @@ See `CONFIG.md`. `auto run --json` prints `{"dry_run":bool,"summary":"..."}`.
 ## `recommend`
 
 ```text
-cna recommend [--min-size 5M] [--limit 25] [--root PATH ...] [--apps-file F] [--apply --yes] [--json]
+cna recommend [--min-size 5M] [--limit 25] [--root PATH ...] [--apps-file F] [--apply --yes] [--select PATH ...] [--json]
 ```
 
 Looks through `%LOCALAPPDATA%`, `%APPDATA%` and `%PROGRAMDATA%` (or the `--root` folders) down to six levels and proposes **clean** (safe: moved to
 quarantine), **review** (look first) or **keep** (hidden). Rules decide where they know the folder; otherwise the on-device model proposes and a
 safety gate has the last word. Each row shows the source (`rules` / `model` / `your decision` / `safety rule`), the confidence and the reasons.
-`--apply --yes` moves only the `clean` rows to quarantine. Details: [MODEL.md](MODEL.md).
+`--apply --yes` moves only the `clean` rows to quarantine. Add repeated `--select PATH` flags to move only chosen clean rows. Details: [MODEL.md](MODEL.md).
 
 JSON: `{"items":[{"path","name","action","class","confidence","bytes","source","note","because":[...]}],"clean_bytes","review_bytes","folders_checked","applied","quarantined","quarantined_bytes","failed"}`.
 

@@ -121,9 +121,12 @@ int cmd_recommend(const Args& a) {
   uint64_t moved_b = 0;
   int moved = 0, failed = 0;
   bool apply = a.has("apply") && G.yes;
+  std::set<std::string> selected;
+  for (auto& p : a.all("select")) selected.insert(norm_key(P(p)));
   if (apply)
     for (auto& i : items) {
       if (i.action != "clean") continue;
+      if (!selected.empty() && !selected.count(norm_key(P(i.path)))) continue;
       std::string err;
       std::string why = "advisor: " + i.source + (i.note.empty() ? "" : " - " + i.note);
       if (q_move(P(i.path), why, i.bytes, err).empty()) { std::fprintf(stderr, "skip %s: %s\n", i.path.c_str(), err.c_str()); ++failed; }

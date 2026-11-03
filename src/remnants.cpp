@@ -91,6 +91,18 @@ bool system_folder_name(const std::string& l) {
   return l.rfind("windows", 0) == 0 || l.rfind("microsoft", 0) == 0 || l.rfind("$", 0) == 0;
 }
 
+// These are shared/system/vendor working directories. A missing uninstall-key match is not
+// enough evidence to call them leftovers, and they must never enter the bulk quarantine path.
+static bool known_non_remnant(const std::string& l, const char* root_kind) {
+  static const std::set<std::string> names = {
+      "softwaredistribution", "whesvc", "squirrelmachineinstalls", "squirreltemp", "common",
+      "adobe", "kotlin", "crashrpt", "jedi", "ms-playwright-go", "ultralytics", "winutil"};
+  if (names.count(l)) return true;
+  // Shared package/program folders are not owned by one app. They need a dedicated maintenance
+  // workflow, not a generic orphan detector.
+  return std::string(root_kind) == "local-programs" && (l == "common" || l == "shared");
+}
+
 std::vector<Remnant> find_remnants(int min_score, const std::vector<plat::App>& apps, std::vector<std::string>& stale) {
   OwnerIndex idx;
   idx.build(apps);
@@ -124,10 +136,14 @@ std::vector<Remnant> find_remnants(int min_score, const std::vector<plat::App>& 
       auto st = it->symlink_status(e2);
       if (e2 || !fs::is_directory(st) || st.type() == fs::file_type::symlink || plat::is_reparse_dir(p)) continue;
       std::string name = u8(p.filename());
-      if (system_folder_name(lower(name)) || is_excluded(p) || !seen.insert(norm_key(p)).second) continue;
+      std::string lname = lower(name);
+      if (system_folder_name(lname) || known_non_remnant(lname, r.kind) || is_excluded(p) || !seen.insert(norm_key(p)).second) continue;
       if (idx.find(name, p)) continue;
 
       TreeInfo ti = tree_info(p, 20000);
+      // Empty folders have no recoverable space. Reporting them as 75-95 confidence removals
+      // creates noise and makes the review screen look much less trustworthy.
+      if (ti.bytes == 0) continue;
       Remnant rm;
       rm.path = u8(p);
       rm.kind = r.kind;
@@ -142,6 +158,7 @@ std::vector<Remnant> find_remnants(int min_score, const std::vector<plat::App>& 
       else if (nd > 180) { score += 15; why += "; untouched " + std::to_string((int)nd) + " days"; }
       else if (nd > 90) score += 5;
       else if (nd < 30) { score -= 25; why += "; modified recently"; }
+      if (ti.truncated) { score -= 20; why += "; large folder sampled only"; }
       if (std::string(r.kind) == "program-files") {
         if (ti.uninstaller) { score -= 5; rm.kind = "program-files-orphan"; why += "; has an uninstaller but no registry entry"; }
         else if (ti.exes > 0) { score -= 20; rm.kind = "unregistered-program"; why += "; contains executables (may be portable)"; }
@@ -263,7 +280,18 @@ int cmd_remnants(const Args& a) {
   uint64_t qb = 0;
   int qfail = 0;
   bool do_q = a.has("quarantine") && G.yes;
-  if (do_q) qfail = remnants_quarantine(r, qb);
+  if (do_q) {
+    std::set<std::string> selected;
+    for (auto& p : a.all("select")) selected.insert(norm_key(P(p)));
+    std::vector<Remnant> chosen;
+    for (auto& x : r)
+      if (selected.empty() || selected.count(norm_key(P(x.path)))) chosen.push_back(x);
+    if (!selected.empty() && chosen.empty()) {
+      std::fprintf(stderr, "none of the selected paths are current leftover candidates; scan again\n");
+      return 1;
+    }
+    qfail = remnants_quarantine(chosen, qb);
+  }
 
   if (G.json) {
     std::printf("{\"apps_known\":%zu,\"remnants\":[", apps.size());
@@ -285,7 +313,7 @@ int cmd_remnants(const Args& a) {
   }
   std::printf("\n%zu candidate(s), %s.\n", r.size(), human(total).c_str());
   if (do_q) std::printf("Moved %s to quarantine. Undo with `cna quarantine`.\n", human(qb).c_str());
-  else if (!r.empty()) std::printf("Review the list, then add --quarantine --yes (reversible). Use `cna explain <path>` on anything unsure.\n");
+  else if (!r.empty()) std::printf("Review the list, then add --quarantine --yes (reversible). Use repeated --select PATH to move only chosen rows, or `cna explain <path>` on anything unsure.\n");
   return qfail ? 2 : 0;
 }
 

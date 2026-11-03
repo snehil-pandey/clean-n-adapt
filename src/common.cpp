@@ -319,7 +319,7 @@ TreeInfo tree_info(const fs::path& root, uint64_t max_entries, bool collect_ext)
 Args parse_args(const std::vector<std::string>& v, size_t from) {
   static const std::set<std::string> valued = {
       "profile", "min-age", "min-size", "max-size", "mem-cap", "apps-file", "min-score", "every-hours",
-      "older-than", "config", "state", "limit", "of", "app", "depth", "root", "exclude", "reason", "label", "preset", "only", "id", "packages-file"};
+      "older-than", "config", "state", "limit", "of", "app", "depth", "root", "exclude", "select", "reason", "label", "preset", "only", "id", "packages-file"};
   Args a;
   for (size_t i = from; i < v.size(); ++i) {
     const std::string& s = v[i];
