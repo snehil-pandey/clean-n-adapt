@@ -1,59 +1,70 @@
 # Changelog
 
-## 0.2.0 - on-device model and debloat
+All notable changes to Clean-n-Adapt are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
+[Semantic Versioning](https://semver.org/).
 
-**New: learning advisor (`cna recommend`, `cna model`)**
-- A 192 KB on-device softmax-regression model (no dependencies, ~70 ms to train) classifies folders as regenerable / caution / keep from names, contents mix, size, age and ownership, and explains why.
-- Learns from you: `model feedback`, and restoring anything the advisor quarantined. `forget`, `retrain`, `reset`, `eval`, `predict`.
-- Non-learned safety gate: sensitive names (credentials, keys, wallets, saves, `tdata`, `Package Cache` ...) are never cleaned; `clean` requires a cache-like name or your earlier decision; your decision about a folder always wins; suggestions are applied only by moving to quarantine.
-- `recommend` searches up to six levels deep and reports each byte once; `explain` now shows the model's verdict and reasons.
-- Smart advice tile in the widget.
+## [Unreleased]
 
-**New: debloat (`cna debloat`)**
-- Catalogue-driven: 18 privacy/ads tweaks, startup items (Task Manager's `StartupApproved` marker), 12 services, hibernation, and an allow-list of 42 Store apps.
-- Presets safe / balanced / aggressive; preview by default; Store apps only with explicit opt-in.
-- Journal + exact `undo` for everything except app removal.
-- Debloat tile in the widget; tray items "Remove bloat apps..." and "Undo debloat changes...".
+No unreleased changes.
 
-**Platform / internals**
-- Registry layer in the platform code (real registry on Windows, file-backed fake elsewhere so the logic is testable on Linux).
-- `explain` rules reusable by the advisor; widget window is taller (second tile row).
-- New tests: `model_check.py`, `advisor_check.py`, `debloat_check.py`; new docs `MODEL.md`, `DEBLOAT.md`.
+## [3.0.0] - 2026-11-03
 
-**Fixed**
-- Docs for the data folder (`ARCHITECTURE.md`, `WIDGET.md`) still described the old location; corrected.
+### Added
+- Native C++17 `cna.exe` maintenance engine and `cna-widget.exe` desktop/tray
+  controller, replacing the public Qt/Python implementation released as v2.
+- Cache profiles, verified duplicate discovery, quarantine and recovery,
+  remnant inspection, `explain`, offline rule/model advice, reversible
+  debloat operations, and scheduled maintenance.
+- A native, scrollable review window for leftovers, recommendations, and
+  duplicate copies. It exposes every parsed candidate with path, category,
+  size, confidence, and reason; it supports Select all, Clear all, Inspect,
+  and staging a selected set for final confirmation.
+- Selective quarantine through repeated `--select PATH` flags for remnants,
+  recommendations, and duplicate copies.
+- An elevated NSIS installer with Program Files installation, Apps & Features
+  registration, upgrade support, Start Menu entries, and an uninstaller.
+- CI validation that checks `VERSION`, CLI reporting, installer naming, and
+  release-tag/version agreement.
 
-## 0.1.0 - first release
+### Changed
+- The widget keeps the last scan for each cleanup profile during its session,
+  opens text details inside the application, and uses light translucency.
+- The tray exposes Store-app inspection rather than an irreversible one-click
+  removal command.
+- The app uses `VERSION` as the canonical version source for CMake, Windows
+  resources, the CLI, installer, and release artifact name.
 
-**Engine (`cna.exe`)**
-- Cache cleaner with profiles quick / browser / dev / gaming / windows / apps / custom / full; dry-run by default.
-- Duplicate finder (size -> 16 KB head hash -> SHA-256), hard-link aware, cloud-placeholder safe, `--of FILE` mode.
-- Leftover finder for removed apps (scored 0-100) and `--app NAME` search incl. read-only registry report.
-- `explain` with signature table, marker files, content mix, owner detection and a persistent knowledge base.
-- Quarantine with manifest, restore and purge.
-- Automation: `cna.conf`, run gating, log, Task Scheduler integration, JSON output, exit codes.
-- 125 MB cap: Windows Job Object + internal real-usage guard.
+### Fixed
+- Empty folders, shared/vendor working folders, and protected Windows working
+  locations are no longer promoted as high-confidence generic leftovers.
+- Partially sampled large folders have reduced leftover confidence.
+- Installer staging now verifies the binaries passed to NSIS before packaging.
 
-**Widget (`cna-widget.exe`)**
-- Windows 11 style desktop widget + tray icon; light/dark theme, system accent, per-monitor DPI.
-- Scan / Clean / Duplicates / Leftovers / Quarantine / Auto-clean switch; confirm-before-act; Stop; Details report.
+## [2.0.0] - 2026-06-21
 
-**Installer and build**
-- `Clean-n-Adapt-Setup-<version>.exe` (NSIS): per-user, no admin rights, Start Menu entries, Apps & features entry,
-  optional desktop shortcut and start-with-Windows, in-place upgrade, clean uninstall that keeps user data by default.
-- Build routes: CMake (builds the installer automatically when NSIS is present), `scripts/build-windows.ps1`,
-  `scripts/build-mingw.sh`, a MinGW toolchain file, and a GitHub Actions workflow.
-- Application icon, version info and installer artwork (`assets/`, regenerated by `tools/make_icon.py`).
-- `VERSION` file is the single source of the version.
-- `cna-widget.exe --quit` asks a running widget to exit.
+Published GitHub release: [v2.0.0](https://github.com/snehil-pandey/clean-n-adapt/releases/tag/v2.0.0).
 
-**Changed**
-- Data folder is now `%LOCALAPPDATA%\cna` for installed copies; a `.state` folder next to the exe is used only if it
-  already exists (portable mode). This keeps quarantined files safe across upgrades and uninstalls.
+### Added
+- PySide6/Qt desktop dashboard, widget-style cleanup/boost screens, tray
+  actions, limited `clean`/`boost`/`refresh` CLI surface, Nuitka build scripts,
+  and an Inno Setup installer script, as recorded in the published release
+  notes.
 
-**Fixed during development**
-- Protected custom rules no longer shadow legitimate rules beneath them (and are reported when refused).
-- The startup `auto status` query no longer locks the widget UI.
-- Duplicate rows in the widget show the copy that will be kept.
+## Historical releases
 
-**Known gaps**: see `docs/TESTING.md` section 5 and `docs/ARCHITECTURE.md` section 18.
+The following published releases are preserved exactly as tagged. Their full
+release notes were not reconstructed during the native-codebase migration, so
+this changelog deliberately does not infer features beyond their Git history.
+
+- `v1.2.2` - 2026-06-12
+- `v1.2.1` - 2026-06-12
+- `v1.2.0` - 2026-06-11
+- `v1.1.2` - tag preserved; publication date requires GitHub release metadata
+- `v1.1.1` - tag preserved; publication date requires GitHub release metadata
+- `v1.1.0` - tag preserved; publication date requires GitHub release metadata
+- `v1.0.0` - tag preserved; publication date requires GitHub release metadata
+
+[Unreleased]: https://github.com/snehil-pandey/clean-n-adapt/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/snehil-pandey/clean-n-adapt/releases/tag/v3.0.0
+[2.0.0]: https://github.com/snehil-pandey/clean-n-adapt/releases/tag/v2.0.0

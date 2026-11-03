@@ -15,10 +15,36 @@ jobs:
       - name: Build (exes + installer)
         shell: pwsh
         run: ./scripts/build-windows.ps1
+      - name: Verify version and release files
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION must be MAJOR.MINOR.PATCH" }
+          $reported = (& .\dist\cna.exe version).Trim()
+          if ($reported -ne "cna $version") { throw "CLI reports '$reported', expected 'cna $version'" }
+          foreach ($binary in '.\dist\cna.exe', '.\dist\cna-widget.exe') {
+            $embedded = (Get-Item $binary).VersionInfo.ProductVersion
+            if ($embedded -ne $version) { throw "$binary embeds version '$embedded', expected '$version'" }
+          }
+          $setup = "dist\Clean-n-Adapt-Setup-$version.exe"
+          if (-not (Test-Path $setup)) { throw "Expected installer not found: $setup" }
+          if ($env:GITHUB_REF -like 'refs/tags/*' -and $env:GITHUB_REF -ne "refs/tags/v$version") {
+            throw "Release tag must be v$version, got $env:GITHUB_REF"
+          }
+          "value=$version" >> $env:GITHUB_OUTPUT
       - name: Smoke test the CLI
         shell: pwsh
         run: python tests/smoke.py dist/cna.exe
+      - name: Review safety regression test
+        shell: pwsh
+        run: python tests/review_check.py dist/cna.exe
+      - name: Advisor regression tests
+        shell: pwsh
+        run: |
+          python tests/model_check.py dist/cna.exe
+          python tests/advisor_check.py dist/cna.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: Clean-n-Adapt-installer
-          path: dist/Clean-n-Adapt-Setup-*.exe
+          name: Clean-n-Adapt-Setup-${{ steps.version.outputs.value }}
+          path: dist/Clean-n-Adapt-Setup-${{ steps.version.outputs.value }}.exe

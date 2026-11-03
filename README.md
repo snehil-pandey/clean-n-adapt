@@ -70,6 +70,7 @@ Nothing is deleted without `--yes`. Start with [Getting Started](docs/GETTING_ST
 | [docs/BUILD.md](docs/BUILD.md) | Building, the installer (what it does, silent flags), versioning, signing, distribution |
 | [docs/WIDGET.md](docs/WIDGET.md) | Widget and tray behaviour, how it talks to the CLI, theming |
 | [docs/TESTING.md](docs/TESTING.md) | What was verified and what was not, test scripts, a 15-minute Windows checklist |
+| [docs/RELEASING.md](docs/RELEASING.md) | Version source, release checklist, CI validation and tagging policy |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 
 ## Build (source -> installer)
