@@ -31,9 +31,9 @@ using namespace Gdiplus;
 #define WM_TRAY (WM_APP + 2)
 #define WM_SHOWME (WM_APP + 3)
 enum { T_ANIM = 1, T_CONFIRM = 2, T_DISK = 3 };
-enum { ID_NONE = 0, ID_CLOSE, ID_PIN, ID_PROF = 10, ID_SCAN = 20, ID_ACTION, ID_DUPES = 30, ID_LEFT, ID_QUAR, ID_SMART, ID_DEBLOAT, ID_DETAILS = 40, ID_AUTO, ID_RESULT_ROW = 60 };
+enum { ID_NONE = 0, ID_CLOSE, ID_PIN, ID_PROF = 10, ID_SCAN = 20, ID_ACTION, ID_DUPES = 30, ID_LEFT, ID_QUAR, ID_SMART, ID_DEBLOAT, ID_APPS, ID_DETAILS = 40, ID_AUTO, ID_RESULT_ROW = 60 };
 enum { CM_SHOW = 1, CM_QUICK, CM_AUTORUN, CM_PIN, CM_STARTUP, CM_UNDO_DEBLOAT, CM_REMOVE_APPS, CM_EXIT };
-enum Kind { K_NONE, K_SCAN, K_CLEAN, K_QUICK, K_DUPES, K_LEFT, K_QUAR, K_QDUPES, K_QLEFT, K_AUTOSTAT, K_AUTOSET, K_AUTORUN, K_DETAILS, K_SMART, K_QSMART, K_DEBLOAT, K_DEBLOAT_APPLY, K_DEBLOAT_UNDO, K_DEBLOAT_APPS, K_REVIEW };
+enum Kind { K_NONE, K_SCAN, K_CLEAN, K_QUICK, K_DUPES, K_LEFT, K_QUAR, K_QDUPES, K_QLEFT, K_AUTOSTAT, K_AUTOSET, K_AUTORUN, K_DETAILS, K_SMART, K_QSMART, K_DEBLOAT, K_DEBLOAT_APPLY, K_DEBLOAT_UNDO, K_DEBLOAT_APPS, K_APPS, K_APP_REMOVE, K_APP_LEFT, K_QAPPS, K_REVIEW };
 
 static const wchar_t* kClass = L"CnaWidgetWnd";
 static const wchar_t* kRunKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -63,12 +63,13 @@ struct ProfileResult {
 };
 static ProfileResult g_profileResults[5];
 struct ReviewItem {
-  std::wstring path, category, confidence, reason;
+  std::wstring path, category, confidence, reason, command;
   uint64_t bytes = 0;
   bool eligible = false, selected = false;
 };
 static std::vector<ReviewItem> g_reviewItems;
 static int g_reviewApplyKind = K_NONE;
+static std::wstring g_reviewBaseArgs;
 static HWND g_reviewWnd = nullptr, g_reviewList = nullptr;
 static HWND g_reportWnd = nullptr, g_reportEdit = nullptr;
 static std::wstring g_reportText;
@@ -309,8 +310,10 @@ static void layout() {
   add(ID_DUPES, 16, 310, tw, 56);
   add(ID_LEFT, 16 + tw + 8, 310, tw, 56);
   add(ID_QUAR, 16 + 2 * (tw + 8), 310, tw, 56);
-  add(ID_SMART, 16, 374, 150, 56);
-  add(ID_DEBLOAT, 174, 374, 150, 56);
+  float uw = (308.f - 16.f) / 3.f;
+  add(ID_SMART, 16, 374, uw, 56);
+  add(ID_DEBLOAT, 16 + uw + 8, 374, uw, 56);
+  add(ID_APPS, 16 + 2 * (uw + 8), 374, uw, 56);
   add(ID_DETAILS, kW - 16 - 12 - 64, 444, 64, 20);
   if (g_selectable) {
     for (size_t i = 0; i < g_lines.size() && i < 3; ++i) add(ID_RESULT_ROW + (int)i, 24, 466 + (float)i * 17, 280, 17);
@@ -442,13 +445,13 @@ static void paint(HDC hdc) {
 
   // tiles
   {
-    struct Tile { int id; const wchar_t* icon; const wchar_t* label; } tiles[5] = {
+    struct Tile { int id; const wchar_t* icon; const wchar_t* label; } tiles[6] = {
         {ID_DUPES, L"\uE8C8", L"Duplicates"}, {ID_LEFT, L"\uE74D", L"Leftovers"}, {ID_QUAR, L"\uE72E", L"Quarantine"},
-        {ID_SMART, L"\uE721", L"Smart advice"}, {ID_DEBLOAT, L"\uE713", L"Debloat"}};
+        {ID_SMART, L"\uE721", L"Advice"}, {ID_DEBLOAT, L"\uE713", L"Windows"}, {ID_APPS, L"\uE77B", L"Apps"}};
     for (auto& t : tiles) {
       RectF r = rect_of(t.id);
       bool en = enabled(t.id), hot = g_hot == t.id && en, down = g_down == t.id && hot;
-      box(g, r, SF(8), !en ? T.track : down ? T.btnP : hot ? T.btnH : T.card, &T.border);
+      if (hot || down || !en) box(g, r, SF(8), !en ? T.track : down ? T.btnP : T.btnH, nullptr);
       Color ic = en ? T.accent : T.sub;
       txt(g, t.icon, fIcon, RectF(r.X, r.Y + SF(6), r.Width, SF(26)), ic, StringAlignmentCenter);
       txt(g, t.label, fSmall, RectF(r.X, r.Y + SF(32), r.Width, SF(18)), en ? T.text : T.sub, StringAlignmentCenter);
@@ -740,13 +743,17 @@ static LRESULT draw_popup_button(const DRAWITEMSTRUCT* d) {
     fill = disabled ? T.track : down ? mix(T.accent, Color(255, 0, 0, 0), 0.15f) : hot ? T.accentH : T.accent;
     text = disabled ? T.sub : T.accentText;
   } else {
-    fill = disabled ? T.track : down ? T.btnP : hot ? T.btnH : T.btn;
+    fill = disabled ? T.track : down ? T.btnP : hot ? T.btnH : T.bg;
     text = disabled ? T.sub : T.text;
   }
   Graphics g(d->hDC);
   g.SetSmoothingMode(SmoothingModeAntiAlias);
   ::RECT rc = d->rcItem;
-  box(g, RectF((REAL)rc.left + 0.5f, (REAL)rc.top + 0.5f, (REAL)(rc.right - rc.left) - 1.0f, (REAL)(rc.bottom - rc.top) - 1.0f), SF(5), fill, edge);
+  if (primary || disabled || down || hot) box(g, RectF((REAL)rc.left + 0.5f, (REAL)rc.top + 0.5f, (REAL)(rc.right - rc.left) - 1.0f, (REAL)(rc.bottom - rc.top) - 1.0f), SF(5), fill, edge);
+  else {
+    SolidBrush clear(T.bg);
+    g.FillRectangle(&clear, (REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+  }
   if (d->itemState & ODS_FOCUS) {
     Pen focus(primary ? T.accentText : T.accent, 1.0f);
     g.DrawRectangle(&focus, (REAL)rc.left + 3, (REAL)rc.top + 3, (REAL)(rc.right - rc.left) - 6, (REAL)(rc.bottom - rc.top) - 6);
@@ -865,8 +872,9 @@ static void review_summary(HWND h) {
       ++selected; bytes += g_reviewItems[i].bytes;
     }
   }
-  std::wstring summary = std::to_wstring(selected) + L" of " + std::to_wstring(eligible) + L" eligible selected";
-  if (selected) summary += L"  ·  " + human(bytes);
+  std::wstring summary = std::to_wstring(selected) + L" of " + std::to_wstring(eligible) +
+      (g_reviewApplyKind == K_QAPPS ? L" official uninstallers selected" : L" eligible selected");
+  if (selected && g_reviewApplyKind != K_QAPPS) summary += L"  ·  " + human(bytes);
   SetWindowTextW(GetDlgItem(h, RV_SUMMARY), summary.c_str());
 }
 
@@ -893,23 +901,31 @@ static void review_resize(HWND h) {
 static void stage_review_selection() {
   if (!g_reviewList) return;
   std::wstring args;
-  if (g_reviewApplyKind == K_QLEFT) args = L"remnants --quarantine --yes --json";
+  if (g_reviewApplyKind == K_QLEFT) args = (g_reviewBaseArgs.empty() ? L"remnants" : g_reviewBaseArgs) + L" --quarantine --yes --json";
   else if (g_reviewApplyKind == K_QSMART) args = L"recommend --apply --yes --json";
   else if (g_reviewApplyKind == K_QDUPES) args = L"dupes --min-size 10M --quarantine --yes --json";
+  else if (g_reviewApplyKind == K_QAPPS) args = L"apps remove --yes";
   else return;
   uint64_t bytes = 0;
   int n = 0;
+  std::wstring app_label;
   for (size_t i = 0; i < g_reviewItems.size(); ++i) {
     bool checked = ListView_GetCheckState(g_reviewList, (int)i) != FALSE;
     g_reviewItems[i].selected = checked && g_reviewItems[i].eligible;
     if (!g_reviewItems[i].selected) continue;
-    args += L" --select \"" + g_reviewItems[i].path + L"\"";
+    if (g_reviewApplyKind == K_QAPPS) {
+      if (n) { show_prompt(L"Choose one app", L"Official uninstallers can be interactive. Select one app, complete its own uninstaller, then review its leftovers.", L"Close"); return; }
+      args += L" --app \"" + g_reviewItems[i].command + L"\"";
+      app_label = g_reviewItems[i].path;
+    } else args += L" --select \"" + g_reviewItems[i].path + L"\"";
     bytes += g_reviewItems[i].bytes; ++n;
   }
-  if (!n) { show_prompt(L"Nothing selected", L"Choose at least one eligible item before staging a quarantine. Protected items cannot be selected.", L"Close"); return; }
-  g_pending = {true, L"Quarantine " + human(bytes), args, g_reviewApplyKind};
+  if (!n) { show_prompt(L"Nothing selected", g_reviewApplyKind == K_QAPPS ? L"Only apps with a registered official uninstaller can be selected." : L"Choose at least one eligible item before staging a quarantine. Protected items cannot be selected.", L"Close"); return; }
+  g_pending = g_reviewApplyKind == K_QAPPS
+      ? Pending{true, L"Uninstall " + app_label, args, K_APP_REMOVE}
+      : Pending{true, L"Quarantine " + human(bytes), args, g_reviewApplyKind};
   g_confirming = false;
-  set_status(std::to_wstring(n) + L" selected item(s) staged - click Quarantine, then Confirm");
+  set_status(g_reviewApplyKind == K_QAPPS ? L"Official uninstaller staged - click Uninstall, then Confirm" : std::to_wstring(n) + L" selected item(s) staged - click Quarantine, then Confirm");
   DestroyWindow(g_reviewWnd);
   invalidate();
 }
@@ -926,7 +942,7 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       ListView_SetTextBkColor(g_reviewList, CR(T.card));
       ListView_SetTextColor(g_reviewList, CR(T.text));
       set_popup_font(g_reviewList);
-      struct Col { const wchar_t* name; int width; } cols[] = {{L"Path", 320}, {L"Category", 110}, {L"Size", 90}, {L"Confidence", 100}, {L"Reason", 360}};
+      struct Col { const wchar_t* name; int width; } cols[] = {{g_reviewApplyKind == K_QAPPS ? L"Application" : L"Path", 320}, {L"Decision", 110}, {L"Size", 90}, {L"Evidence", 100}, {L"Why this result", 360}};
       for (int i = 0; i < 5; ++i) { LVCOLUMNW c{}; c.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM; c.pszText = (LPWSTR)cols[i].name; c.cx = cols[i].width; c.iSubItem = i; ListView_InsertColumn(g_reviewList, i, &c); }
       for (size_t i = 0; i < g_reviewItems.size(); ++i) {
         auto& row = g_reviewItems[i];
@@ -942,7 +958,7 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       CreateWindowW(L"BUTTON", L"Select all", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_ALL, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Clear all", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_NONE, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Inspect", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_INSPECT, g_inst, nullptr);
-      CreateWindowW(L"BUTTON", L"Stage quarantine", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_STAGE, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", g_reviewApplyKind == K_QAPPS ? L"Start uninstall" : L"Stage quarantine", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_STAGE, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_CLOSE, g_inst, nullptr);
       HWND summary = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, h, (HMENU)RV_SUMMARY, g_inst, nullptr);
       set_popup_font(summary, g_uiBoldFont);
@@ -954,7 +970,9 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_ERASEBKGND: return 1;
     case WM_PAINT:
-      paint_popup_header(h, L"Review cleanup candidates", L"Select eligible items, inspect the evidence, then stage a reversible quarantine.");
+      paint_popup_header(h, g_reviewApplyKind == K_QAPPS ? L"Installed applications" : L"Review cleanup candidates",
+          g_reviewApplyKind == K_QAPPS ? L"Only registered official uninstallers may be selected. CNA never deletes an app folder directly."
+                                      : L"Select eligible items, inspect the evidence, then stage a reversible quarantine.");
       return 0;
     case WM_NCHITTEST: return popup_hit_test(h, l, true);
     case WM_SIZE: review_resize(h); return 0;
@@ -1132,6 +1150,62 @@ static void on_done(JobData* j) {
       show_report_window(o);
       set_status(L"Report opened in Clean-n-Adapt");
     }
+  } else if (kind == K_APP_REMOVE) {
+    if (!j->started || j->code != 0) fail(L"Official uninstaller");
+    else {
+      std::wstring app = g_pending.label;
+      const std::wstring prefix = L"Uninstall ";
+      if (app.rfind(prefix, 0) == 0) app.erase(0, prefix.size());
+      g_pending = {true, L"Audit leftovers", L"apps leftovers --app \"" + app + L"\" --json", K_APP_LEFT};
+      g_heroBig = L"Done"; g_heroCap = L"official uninstaller finished"; g_heroMeta.clear();
+      g_reportArgs = L"apps leftovers --app \"" + app + L"\"";
+      set_status(L"Nothing else was deleted - review classified leftovers next");
+    }
+  } else if (kind == K_APPS) {
+    g_lines.clear(); g_reviewItems.clear(); g_reviewApplyKind = K_QAPPS;
+    size_t p = 0; int shown = 0, total = 0, removable = 0;
+    while ((p = o.find("{\"name\":\"", p)) != std::string::npos) {
+      std::string name = strat(o, p + 8), publisher = strat(o, kpos(o, "publisher", p));
+      std::string version = strat(o, kpos(o, "version", p));
+      bool official = o.find("\"official_uninstaller\":true", p) != std::string::npos &&
+          o.find("\"official_uninstaller\":true", p) < o.find('}', p);
+      std::wstring evidence = official
+          ? L"Registered official uninstaller"
+          : L"No registered official uninstaller; protected";
+      std::wstring detail = W(publisher);
+      if (!version.empty()) detail += (detail.empty() ? L"" : L"  ") + W(version);
+      if (detail.empty()) detail = L"Registry inventory";
+      g_reviewItems.push_back({W(name), official ? L"Official uninstall" : L"Protected", evidence, detail, W(name), 0, official, false});
+      if (shown < 3) { g_lines.push_back({W(name), official ? L"Official uninstall" : L"No uninstaller"}); ++shown; }
+      ++total; if (official) ++removable;
+      p += 9;
+    }
+    g_heroBig = std::to_wstring(total);
+    g_heroCap = L"installed apps in the registered inventory";
+    g_heroMeta = std::to_wstring(removable) + L" official uninstallers";
+    g_reportArgs = L"apps list";
+    if (total) { g_pending = {true, L"Review apps", L"", K_REVIEW}; set_status(L"Select one registered official uninstaller to continue"); }
+    else { g_pending = Pending(); set_status(L"No registered apps found", true); }
+  } else if (kind == K_APP_LEFT) {
+    g_lines.clear(); g_reviewItems.clear(); g_reviewApplyKind = K_QLEFT;
+    size_t p = 0; int n = 0;
+    uint64_t total = 0;
+    while ((p = o.find("{\"path\":\"", p)) != std::string::npos) {
+      std::string path = strat(o, p + 8), category = strat(o, kpos(o, "category", p));
+      std::string action = strat(o, kpos(o, "action", p)), reason = strat(o, kpos(o, "reason", p));
+      uint64_t bytes = numat(o, kpos(o, "bytes", p));
+      bool eligible = action == "clean";
+      g_reviewItems.push_back({W(path), eligible ? L"Eligible leftover" : L"Protected / review", W(category), W(reason), L"", bytes, eligible, false});
+      if (n < 3) { g_lines.push_back({leaf(path), human(bytes)}); ++n; }
+      if (eligible) total += bytes;
+      p += 9;
+    }
+    g_heroBig = human(total); g_heroCap = L"eligible leftovers after uninstall"; g_heroMeta.clear();
+    g_reviewBaseArgs = g_pending.args;
+    size_t json_arg = g_reviewBaseArgs.find(L" --json");
+    if (json_arg != std::wstring::npos) g_reviewBaseArgs.erase(json_arg, 7);
+    if (!g_reviewItems.empty()) { g_pending = {true, L"Review leftovers", L"", K_REVIEW}; set_status(L"Only evidence-backed leftovers can be selected"); }
+    else { g_pending = Pending(); set_status(L"No leftovers found"); }
   } else if (!json) {
     fail(kind == K_SCAN ? L"Scan" : kind == K_DUPES ? L"Duplicate search" : kind == K_LEFT ? L"Leftover search" : L"Action");
   } else if (kind == K_SCAN) {
@@ -1190,6 +1264,7 @@ static void on_done(JobData* j) {
     g_heroMeta.clear();
     g_reportArgs = L"dupes --min-size 10M --limit 100";
     g_reviewItems.clear(); g_reviewApplyKind = K_NONE;
+  g_reviewBaseArgs.clear();
     p = 0;
     while ((p = o.find("{\"size\":", p)) != std::string::npos) {
       uint64_t size = numat(o, kpos(o, "size", p));
@@ -1203,7 +1278,7 @@ static void on_done(JobData* j) {
         bool eligible = i != keeper;
         g_reviewItems.push_back({W(path), eligible ? L"Duplicate copy" : L"Keeper", eligible ? L"Verified" : L"Protected",
                                  eligible ? L"Full SHA-256 match; keeper: " + W(keeper_path) : L"Chosen keeper is never quarantined",
-                                 size, eligible, eligible});
+                                  L"", size, eligible, eligible});
       }
       p += 8;
     }
@@ -1214,7 +1289,7 @@ static void on_done(JobData* j) {
     uint64_t total = numat(o, kpos(o, "total_bytes"));
     g_lines.clear();
     g_selectPaths.clear(); g_selected.clear(); g_selectable = false; g_selectKind = K_NONE;
-    g_reviewItems.clear(); g_reviewApplyKind = K_NONE;
+    g_reviewItems.clear(); g_reviewApplyKind = K_NONE; g_reviewBaseArgs = L"remnants";
     size_t p = 0;
     int shown = 0;
     while (shown < 3 && (p = o.find("{\"path\":\"", p)) != std::string::npos) {
@@ -1234,7 +1309,7 @@ static void on_done(JobData* j) {
         std::string path = strat(o, p + 8);
         uint64_t sc = numat(o, kpos(o, "score", p)), b = numat(o, kpos(o, "bytes", p));
         std::string why = strat(o, kpos(o, "reason", p));
-        g_reviewItems.push_back({W(path), L"Leftover", std::to_wstring(sc) + L" / 100", W(why), b, true, true});
+        g_reviewItems.push_back({W(path), L"Leftover", std::to_wstring(sc) + L" / 100", W(why), L"", b, true, true});
         p += 9;
       }
       g_reviewApplyKind = K_QLEFT;
@@ -1276,7 +1351,7 @@ static void on_done(JobData* j) {
       p += 9;
     }
     g_lines.clear(); g_selectPaths.clear(); g_selected.clear(); g_selectable = false; g_selectKind = K_NONE;
-    g_reviewItems.clear(); g_reviewApplyKind = K_NONE;
+    g_reviewItems.clear(); g_reviewApplyKind = K_NONE; g_reviewBaseArgs.clear();
     for (auto& r : clean_rows) {
       g_lines.push_back({leaf(r.path), human(r.b)}); g_selectPaths.push_back(W(r.path)); g_selected.push_back(true);
       if (g_lines.size() >= 3) break;
@@ -1286,19 +1361,19 @@ static void on_done(JobData* j) {
     g_heroCap = std::to_wstring(clean_rows.size()) + (clean_rows.size() == 1 ? L" folder suggested \u00B7 " : L" folders suggested \u00B7 ") + human(review_b) + L" to review";
     g_heroMeta.clear();
     g_reportArgs = L"recommend --limit 100";
-    if (clean_b > 0) {
+    if (!clean_rows.empty() || !review_rows.empty()) {
       p = 0;
       while ((p = o.find("{\"path\":\"", p)) != std::string::npos) {
         std::string path = strat(o, p + 8), action = strat(o, kpos(o, "action", p));
         std::string src = strat(o, kpos(o, "source", p)), note = strat(o, kpos(o, "note", p));
-        std::wstring confidence = action == "clean" ? L"Safe by " + W(src) : L"Review only";
-        g_reviewItems.push_back({W(path), action == "clean" ? L"Safe cleanup" : L"Needs review", confidence, W(note),
-                                 numat(o, kpos(o, "bytes", p)), action == "clean", action == "clean"});
+        std::wstring confidence = action == "clean" ? L"Eligible: " + W(src) : L"Evidence only";
+        g_reviewItems.push_back({W(path), action == "clean" ? L"Eligible" : L"Needs review", confidence, W(note),
+                                  L"", numat(o, kpos(o, "bytes", p)), action == "clean", action == "clean"});
         p += 9;
       }
       g_reviewApplyKind = K_QSMART;
       g_pending = {true, L"Review advice", L"", K_REVIEW};
-      set_status(L"Review safe advice and evidence before staging quarantine");
+      set_status(clean_b ? L"Review evidence before staging eligible items" : L"No item is eligible yet; inspect the evidence and teach the model if needed");
     }
     else { g_pending = Pending(); set_status(L"Nothing safe to suggest right now"); }
   } else if (kind == K_QSMART) {
@@ -1376,6 +1451,7 @@ static void do_click(int id) {
     case ID_QUAR: if (!g_busy) start_job(K_QUAR, L"quarantine list --json", L"Reading quarantine\u2026"); break;
     case ID_SMART: if (!g_busy) start_job(K_SMART, L"recommend --json", L"Analysing folders\u2026"); break;
     case ID_DEBLOAT: if (!g_busy) start_job(K_DEBLOAT, L"debloat scan --json", L"Checking Windows\u2026"); break;
+    case ID_APPS: if (!g_busy) start_job(K_APPS, L"apps list --json", L"Reading installed apps\u2026"); break;
     case ID_DETAILS: if (!g_busy && !g_reportArgs.empty()) start_job(K_DETAILS, g_reportArgs, L"Preparing report\u2026"); break;
     case ID_AUTO:
       if (!g_busy) start_job(K_AUTOSET, g_autoOn ? L"auto remove" : L"auto install --every-hours 6", g_autoOn ? L"Removing scheduled task\u2026" : L"Creating scheduled task\u2026");

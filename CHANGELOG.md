@@ -9,6 +9,13 @@ All notable changes to Clean-n-Adapt are documented here. The format follows
 ## [3.0.2] - 2026-11-03
 
 ### Changed
+- The widget now has a dedicated Apps action. It inventories registered
+  applications in the same scrollable review surface, permits only one
+  registered official uninstaller at a time, and offers a classified
+  leftover audit after the uninstaller finishes.
+- Review rows now present an actionable decision and its evidence source.
+  Button and tool-tile backgrounds are quiet by default and appear only for
+  hover, press, disabled, or primary-action states.
 - Removed stock title bars and system-styled action buttons from the widget's
   report, review, and confirmation surfaces. They now use the widget's own
   draggable header, card styling, typography, accent-aware owner-drawn
@@ -23,6 +30,9 @@ All notable changes to Clean-n-Adapt are documented here. The format follows
   post-uninstall leftover audits.
 
 ### Fixed
+- Model-only cache-like guesses are no longer eligible for recommendation
+  quarantine. They remain visible as review-only evidence until a
+  deterministic rule or the user's recorded decision supports the action.
 - Popup frames are now painted by the widget itself rather than relying on
   optional DWM borders. Report, review, and confirmation windows therefore
   retain the same visible boundary, close control, focus treatment, and

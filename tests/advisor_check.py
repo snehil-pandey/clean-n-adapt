@@ -39,7 +39,7 @@ try:
     by = {os.path.basename(i["path"]): i for i in r["items"]}
     check("Chrome Cache (5 levels deep) is suggested",  any(i["path"].replace("\\", "/").endswith("User Data/Default/Cache") and i["action"] == "clean" for i in r["items"]))
     check("discord Cache is a suggested clean-up",    any(i["path"].replace("\\", "/").endswith("discord/Cache") and i["action"] == "clean" for i in r["items"]))
-    check("odd-named WebViewCache2 recognised",       by.get("WebViewCache2", {}).get("action") == "clean")
+    check("odd-named WebViewCache2 stays review-only", by.get("WebViewCache2", {}).get("action") == "review")
     check("parents are not double counted",          sum(i["bytes"] for i in r["items"]) <= 2 * r["clean_bytes"] + r["review_bytes"] and r["review_bytes"] < 80 * MB)
     check("Logs folder is a suggested clean-up",      by.get("Logs", {}).get("action") == "clean")
     check("Credentials is never cleaned",             not any(i["path"].replace("\\", "/").endswith("Credentials") and i["action"] == "clean" for i in r["items"]))
@@ -58,12 +58,12 @@ try:
 
     # --- learning from a restore -----------------------------------------------------------------
     q = js("quarantine", "list")
-    ent = next(e for e in q["entries"] if e["original"].endswith("WebViewCache2"))
+    ent = next(e for e in q["entries"] if e["original"].endswith("discord/Cache"))
     before = js("model", "status")["feedback"]
     out = run("quarantine", "restore", ent["id"]).stdout
     check("restore brings the folder back",           os.path.exists(ent["original"]))
     check("restore is recorded as feedback",          js("model", "status")["feedback"] == before + 1 and "Noted" in out)
-    check("restored folder is no longer 'clean'",     js("model", "predict", ent["original"])["action"] != "clean")
+    check("restored folder is no longer auto-staged", not any(i["path"] == ent["original"] and i["action"] == "clean" for i in js("recommend", "--min-size", "1M")["items"]))
 
     # --- explicit feedback ----------------------------------------------------------------------
     quill = f"{RA}/Quillsoft"

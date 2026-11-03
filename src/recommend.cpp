@@ -52,6 +52,14 @@ Item evaluate(const fs::path& p, const OwnerIndex& owners, uint64_t max_entries)
     it.why.clear();
   } else {                                                   // unknown to the rules: model + gate
     it.action = adv.action; it.cls = cls_name(adv.cls); it.conf = adv.conf; it.source = "model"; it.note = adv.note;
+    // A learned prediction is useful evidence, but it is not proof that a real
+    // user's folder is disposable. Only a deterministic rule or an explicit
+    // decision recorded by this user may make a recommendation eligible for
+    // quarantine. This keeps unfamiliar cache-like names review-only.
+    if (it.action == "clean") {
+      it.action = "review";
+      it.note = "model candidate only; needs a known rule or your decision before it can be staged";
+    }
   }
   return it;
 }
