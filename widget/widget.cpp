@@ -715,7 +715,7 @@ static LRESULT draw_popup_button(const DRAWITEMSTRUCT* d) {
   }
   Graphics g(d->hDC);
   g.SetSmoothingMode(SmoothingModeAntiAlias);
-  Rect rc = d->rcItem;
+  ::RECT rc = d->rcItem;
   box(g, RectF((REAL)rc.left + 0.5f, (REAL)rc.top + 0.5f, (REAL)(rc.right - rc.left) - 1.0f, (REAL)(rc.bottom - rc.top) - 1.0f), SF(5), fill, edge);
   txt(g, label, primary ? fBold : fBody, RectF((REAL)rc.left, (REAL)rc.top, (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top)), text, StringAlignmentCenter);
   return TRUE;
