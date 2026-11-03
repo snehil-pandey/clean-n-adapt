@@ -71,18 +71,29 @@ if(WIN32)
   # -------------------------------------------------------------------------------------------
   # installer - Clean-n-Adapt-Setup-<version>.exe (NSIS). Built automatically when NSIS is found.
   # -------------------------------------------------------------------------------------------
+  # Stage the executables first. Passing generator-produced build paths directly to NSIS was
+  # unreliable in multi-config CI builds; this target gives the packager stable, real files.
+  set(CNA_STAGE_DIR "${CMAKE_BINARY_DIR}/package/$<CONFIG>")
+  add_custom_target(stage_release
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CNA_STAGE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:cna>" "${CNA_STAGE_DIR}/cna.exe"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:cna-widget>" "${CNA_STAGE_DIR}/cna-widget.exe"
+    DEPENDS cna cna-widget
+    COMMENT "Staging release executables for the installer"
+    VERBATIM)
+
   find_program(MAKENSIS_EXE makensis
     HINTS "$ENV{ProgramFiles}/NSIS" "$ENV{ProgramFiles\(x86\)}/NSIS" "C:/Program Files (x86)/NSIS" "C:/Program Files/NSIS")
   if(MAKENSIS_EXE)
     add_custom_target(installer ALL
       COMMAND "${MAKENSIS_EXE}" -V2
               "-DVERSION=${CNA_VERSION}"
-              "-DCNA_EXE=$<TARGET_FILE:cna>"
-              "-DWIDGET_EXE=$<TARGET_FILE:cna-widget>"
+              "-DCNA_EXE=${CNA_STAGE_DIR}/cna.exe"
+              "-DWIDGET_EXE=${CNA_STAGE_DIR}/cna-widget.exe"
               "-DROOT=${CMAKE_SOURCE_DIR}"
               "-DOUT_DIR=${CMAKE_SOURCE_DIR}/dist"
               "${CMAKE_SOURCE_DIR}/installer/cna.nsi"
-      DEPENDS cna cna-widget
+      DEPENDS stage_release
       COMMENT "Building installer dist/Clean-n-Adapt-Setup-${CNA_VERSION}.exe"
       VERBATIM)
   else()
