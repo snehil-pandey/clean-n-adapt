@@ -44,7 +44,7 @@ the notification area. **Both exes must be in the same folder.**
 | **Duplicates** | `dupes --min-size 10M --json` over Downloads/Documents/Desktop/Pictures/Videos/Music. Opens a full review list before any copy is staged for quarantine. |
 | **Leftovers** | `remnants --json`. Opens a full review list before any candidate is staged for quarantine. |
 | **Quarantine** | `quarantine list --json`: shows how much is held and the first few entries. |
-| **Details** | Re-runs the last report in text form and opens it in a read-only Clean-n-Adapt report window. |
+| **Details** | Re-runs the last report in text form and opens it in a read-only Clean-n-Adapt report window. It has the same light/dark/accent treatment as the widget and a Copy action for sharing. |
 | Auto-clean switch | `auto install --every-hours 6` / `auto remove`, then refreshes `auto status`. Uses the `cna.conf` in the state folder. |
 | Pin | Keeps the card above other windows. Remembered. |
 
@@ -62,7 +62,7 @@ the notification area. **Both exes must be in the same folder.**
 | A job is running | `Stop` | yes (terminates the running `cna.exe`) |
 
 Running actions: Clean -> `clean --profile <P> --yes --json`; Quarantine extras -> `dupes --min-size 10M --quarantine --yes --json`;
-The native review window lists every parsed candidate with path, category, size, confidence and reason. It supports Select all, Clear all, Inspect, and stages only checked eligible rows as repeated `--select PATH` arguments.
+The native review window lists every parsed candidate with path, category, size, confidence and reason. It supports Select all, Clear all, Inspect, and stages only checked eligible rows as repeated `--select PATH` arguments. The footer shows the selected eligible-item count and estimated size; protected rows remain visible but cannot be staged. Double-click a row to inspect its explanation.
 Apply safe tweaks -> `debloat apply --preset safe --yes --json` (privacy, startup, services, disk; **never** Store apps).
 The Smart advice tile runs `recommend --json`; the Debloat tile runs `debloat scan --json`.
 
@@ -79,8 +79,7 @@ If Explorer restarts, the tray icon is restored automatically. Windows may place
 
 ## Look and feel
 
-* Follows the system **light/dark** mode and **accent colour**, switching live; rounded corners, thin border and shadow
-  on Windows 11 (on older Windows the same card is drawn square).
+* The widget, review window, reports, and confirmation prompts follow the system **light/dark** mode and **accent colour**, switching live; rounded corners, thin border and shadow on Windows 11 (on older Windows the same card is drawn square).
 * Per-monitor DPI aware; moving between monitors rescales.
 * Segoe UI Variable / Segoe Fluent Icons when present, with fallbacks. A light layered translucency keeps the widget visually separate without reducing readability.
 
@@ -89,7 +88,7 @@ If Explorer restarts, the tray icon is restored automatically. Windows may place
 | What | Where |
 |---|---|
 | Settings | `widget.ini` in `%LOCALAPPDATA%\cna\` (or in `<exe folder>\.state\` in portable mode): `x`, `y`, `pinned`, `profile`, `visible` |
-| Reports for "Details" | Kept in memory and shown in a read-only report window; no temporary Notepad file is created. |
+| Reports for "Details" | Kept in memory and shown in a themed read-only report window; no temporary Notepad file is created. |
 | Autostart | `HKCU\...\Run\cna-widget` (only if enabled) |
 | Read-only | `HKCU\...\Themes\Personalize\AppsUseLightTheme`, `HKCU\Software\Microsoft\Windows\DWM\AccentColor` |
 

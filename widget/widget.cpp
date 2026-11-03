@@ -70,6 +70,11 @@ struct ReviewItem {
 static std::vector<ReviewItem> g_reviewItems;
 static int g_reviewApplyKind = K_NONE;
 static HWND g_reviewWnd = nullptr, g_reviewList = nullptr;
+static HWND g_reportWnd = nullptr, g_reportEdit = nullptr;
+static std::wstring g_reportText;
+struct Prompt { std::wstring title, body, action, args, busy; int kind = K_NONE; };
+static HWND g_promptWnd = nullptr;
+static Prompt g_prompt;
 static std::wstring g_note;
 static std::wstring g_status = L"Ready", g_sub = L"", g_heroBig = L"\u2014", g_heroCap = L"Run a scan to see what can be cleaned", g_heroMeta, g_reportArgs;
 static std::vector<std::pair<std::wstring, std::wstring>> g_lines;
@@ -92,7 +97,10 @@ static const wchar_t* kProfArgs[5] = {L"quick", L"browser", L"dev", L"gaming", L
 // ---------------------------------------------------------------------------------------------
 struct Theme { bool dark; Color bg, card, border, text, sub, track, btn, btnH, btnP, accent, accentH, accentText, danger; };
 static Theme T;
+static HFONT g_uiFont = nullptr, g_uiSmallFont = nullptr, g_uiBoldFont = nullptr;
+static HBRUSH g_popupBrush = nullptr, g_popupCardBrush = nullptr;
 static Color C(uint32_t rgb, BYTE a = 255) { return Color(a, (rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255); }
+static COLORREF CR(Color c) { return RGB(c.GetR(), c.GetG(), c.GetB()); }
 static Color mix(Color a, Color b, float t) {
   return Color(255, (BYTE)(a.GetR() + (b.GetR() - a.GetR()) * t), (BYTE)(a.GetG() + (b.GetG() - a.GetG()) * t), (BYTE)(a.GetB() + (b.GetB() - a.GetB()) * t));
 }
@@ -117,6 +125,10 @@ static void load_theme() {
   float lum = (0.299f * T.accent.GetR() + 0.587f * T.accent.GetG() + 0.114f * T.accent.GetB()) / 255.f;
   T.accentText = lum > 0.62f ? C(0x000000) : C(0xFFFFFF);
   T.accentH = T.dark ? mix(T.accent, Color(255, 255, 255, 255), 0.12f) : mix(T.accent, Color(255, 0, 0, 0), 0.12f);
+  if (g_popupBrush) DeleteObject(g_popupBrush);
+  if (g_popupCardBrush) DeleteObject(g_popupCardBrush);
+  g_popupBrush = CreateSolidBrush(CR(T.bg));
+  g_popupCardBrush = CreateSolidBrush(CR(T.card));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -209,6 +221,15 @@ static void make_fonts() {
   fHero = new Font(g_fam, SF(30), FontStyleBold, UnitPixel);
   fIcon = new Font(g_famIcon, SF(18), FontStyleRegular, UnitPixel);
   fIconS = new Font(g_famIcon, SF(13), FontStyleRegular, UnitPixel);
+  if (g_uiFont) DeleteObject(g_uiFont);
+  if (g_uiSmallFont) DeleteObject(g_uiSmallFont);
+  if (g_uiBoldFont) DeleteObject(g_uiBoldFont);
+  g_uiFont = CreateFontW(-SI(13), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+  g_uiSmallFont = CreateFontW(-SI(11), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                              OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+  g_uiBoldFont = CreateFontW(-SI(13), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
 }
 
 static void rr_path(GraphicsPath& p, RectF r, REAL rad) {
@@ -639,29 +660,145 @@ static void start_job(int kind, const std::wstring& args, const std::wstring& bu
   invalidate();
 }
 
-static void show_report_window(const std::string& report) {
-  std::wstring text = W(report);
-  HWND w = CreateWindowExW(WS_EX_TOOLWINDOW, L"EDIT", text.c_str(),
-                           WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
-                           CW_USEDEFAULT, CW_USEDEFAULT, 760, 560, g_hwnd, nullptr, g_inst, nullptr);
-  if (w) {
-    SetWindowTextW(w, L"Clean-n-Adapt report");
-    SendMessageW(w, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
-  }
+static void apply_popup_chrome(HWND h) {
+  BOOL dark = T.dark;
+  DwmSetWindowAttribute(h, 20, &dark, sizeof dark);
+  int corner = 2;
+  DwmSetWindowAttribute(h, 33, &corner, sizeof corner);
+  COLORREF border = CR(T.border);
+  DwmSetWindowAttribute(h, 34, &border, sizeof border);
 }
 
-enum { RV_LIST = 200, RV_ALL, RV_NONE, RV_INSPECT, RV_STAGE, RV_CLOSE };
+static void set_popup_font(HWND h, HFONT font = nullptr) {
+  SendMessageW(h, WM_SETFONT, (WPARAM)(font ? font : g_uiFont), TRUE);
+}
+
+static void paint_popup_header(HWND h, const std::wstring& title, const std::wstring& subtitle) {
+  PAINTSTRUCT ps;
+  HDC dc = BeginPaint(h, &ps);
+  RECT rc; GetClientRect(h, &rc);
+  Graphics g(dc);
+  g.SetSmoothingMode(SmoothingModeAntiAlias);
+  g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
+  g.Clear(T.bg);
+  logo(g, RectF(SI(16), SI(16), SI(28), SI(28)));
+  txt(g, title, fTitle, RectF(SI(54), SI(12), max(0, rc.right - SI(190)), SI(24)), T.text);
+  txt(g, subtitle, fSmall, RectF(SI(54), SI(37), max(0, rc.right - SI(76)), SI(18)), T.sub);
+  EndPaint(h, &ps);
+}
+
+enum { RV_LIST = 200, RV_ALL, RV_NONE, RV_INSPECT, RV_STAGE, RV_CLOSE, RV_SUMMARY, RV_HINT };
+enum { RP_EDIT = 300, RP_COPY, RP_CLOSE, RP_SUMMARY };
+enum { PP_BODY = 400, PP_CANCEL, PP_ACCEPT };
+
+static void report_resize(HWND h) {
+  RECT r; GetClientRect(h, &r);
+  int w = r.right - r.left, hgt = r.bottom - r.top;
+  MoveWindow(g_reportEdit, SI(16), SI(76), max(SI(120), w - SI(32)), max(SI(120), hgt - SI(132)), TRUE);
+  int y = hgt - SI(44);
+  MoveWindow(GetDlgItem(h, RP_SUMMARY), SI(18), y + SI(4), max(SI(100), w - SI(220)), SI(22), TRUE);
+  MoveWindow(GetDlgItem(h, RP_COPY), max(SI(16), w - SI(184)), y, SI(80), SI(30), TRUE);
+  MoveWindow(GetDlgItem(h, RP_CLOSE), max(SI(104), w - SI(96)), y, SI(80), SI(30), TRUE);
+}
+
+static void show_report_window(const std::string& report) {
+  g_reportText = W(report);
+  if (g_reportWnd) {
+    SetWindowTextW(g_reportEdit, g_reportText.c_str());
+    SetForegroundWindow(g_reportWnd);
+    return;
+  }
+  g_reportWnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"CnaReportWnd", L"Clean-n-Adapt | Report",
+      WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(880), SI(620), g_hwnd, nullptr, g_inst, nullptr);
+  if (!g_reportWnd) set_status(L"Could not open the report window", true);
+}
+
+static void prompt_resize(HWND h) {
+  RECT r; GetClientRect(h, &r);
+  int w = r.right - r.left, hgt = r.bottom - r.top;
+  MoveWindow(GetDlgItem(h, PP_BODY), SI(20), SI(78), max(SI(160), w - SI(40)), max(SI(48), hgt - SI(138)), TRUE);
+  int y = hgt - SI(46);
+  MoveWindow(GetDlgItem(h, PP_CANCEL), max(SI(20), w - SI(192)), y, SI(78), SI(30), TRUE);
+  MoveWindow(GetDlgItem(h, PP_ACCEPT), max(SI(106), w - SI(104)), y, SI(84), SI(30), TRUE);
+}
+
+static LRESULT CALLBACK PromptWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+  switch (m) {
+    case WM_CREATE: {
+      apply_popup_chrome(h);
+      HWND body = CreateWindowW(L"STATIC", g_prompt.body.c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT,
+          0, 0, 0, 0, h, (HMENU)PP_BODY, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+          0, 0, 0, 0, h, (HMENU)PP_CANCEL, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", g_prompt.action.c_str(), WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+          0, 0, 0, 0, h, (HMENU)PP_ACCEPT, g_inst, nullptr);
+      set_popup_font(body, g_uiFont);
+      set_popup_font(GetDlgItem(h, PP_CANCEL));
+      set_popup_font(GetDlgItem(h, PP_ACCEPT), g_uiBoldFont);
+      prompt_resize(h);
+      return 0;
+    }
+    case WM_ERASEBKGND: return 1;
+    case WM_PAINT: paint_popup_header(h, g_prompt.title, L"This action stays local and follows Clean-n-Adapt safety rules."); return 0;
+    case WM_SIZE: prompt_resize(h); return 0;
+    case WM_CTLCOLORSTATIC:
+      SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
+    case WM_CTLCOLORBTN:
+      SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
+    case WM_COMMAND:
+      if (LOWORD(w) == PP_ACCEPT) { Prompt p = g_prompt; DestroyWindow(h); if (p.kind != K_NONE) start_job(p.kind, p.args, p.busy); return 0; }
+      if (LOWORD(w) == PP_CANCEL) { DestroyWindow(h); return 0; }
+      break;
+    case WM_CLOSE: DestroyWindow(h); return 0;
+    case WM_DESTROY: g_promptWnd = nullptr; return 0;
+  }
+  return DefWindowProcW(h, m, w, l);
+}
+
+static void show_prompt(const std::wstring& title, const std::wstring& body, const std::wstring& action,
+                        int kind = K_NONE, const std::wstring& args = L"", const std::wstring& busy = L"") {
+  g_prompt = {title, body, action, args, busy, kind};
+  if (g_promptWnd) {
+    SetWindowTextW(GetDlgItem(g_promptWnd, PP_BODY), body.c_str());
+    SetWindowTextW(GetDlgItem(g_promptWnd, PP_ACCEPT), action.c_str());
+    SetForegroundWindow(g_promptWnd); InvalidateRect(g_promptWnd, nullptr, TRUE); return;
+  }
+  g_promptWnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"CnaPromptWnd", L"Clean-n-Adapt | Confirm",
+      WS_CAPTION | WS_SYSMENU | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(480), SI(250), g_hwnd, nullptr, g_inst, nullptr);
+  if (!g_promptWnd) set_status(L"Could not open the confirmation window", true);
+}
+
+static void review_summary(HWND h) {
+  uint64_t bytes = 0;
+  int selected = 0, eligible = 0;
+  for (size_t i = 0; i < g_reviewItems.size(); ++i) {
+    if (g_reviewItems[i].eligible) ++eligible;
+    if (g_reviewList && g_reviewItems[i].eligible && ListView_GetCheckState(g_reviewList, (int)i)) {
+      ++selected; bytes += g_reviewItems[i].bytes;
+    }
+  }
+  std::wstring summary = std::to_wstring(selected) + L" of " + std::to_wstring(eligible) + L" eligible selected";
+  if (selected) summary += L"  ·  " + human(bytes);
+  SetWindowTextW(GetDlgItem(h, RV_SUMMARY), summary.c_str());
+}
 
 static void review_resize(HWND h) {
   RECT r; GetClientRect(h, &r);
   int w = r.right - r.left, hgt = r.bottom - r.top;
-  MoveWindow(g_reviewList, 12, 12, max(100, w - 24), max(100, hgt - 68), TRUE);
-  int y = hgt - 44;
-  MoveWindow(GetDlgItem(h, RV_ALL), 12, y, 92, 28, TRUE);
-  MoveWindow(GetDlgItem(h, RV_NONE), 112, y, 92, 28, TRUE);
-  MoveWindow(GetDlgItem(h, RV_INSPECT), 212, y, 92, 28, TRUE);
-  MoveWindow(GetDlgItem(h, RV_STAGE), max(320, w - 230), y, 142, 28, TRUE);
-  MoveWindow(GetDlgItem(h, RV_CLOSE), max(470, w - 80), y, 68, 28, TRUE);
+  MoveWindow(g_reviewList, SI(16), SI(98), max(SI(160), w - SI(32)), max(SI(120), hgt - SI(160)), TRUE);
+  int listW = max(SI(160), w - SI(32));
+  ListView_SetColumnWidth(g_reviewList, 0, max(SI(190), listW * 30 / 100));
+  ListView_SetColumnWidth(g_reviewList, 1, max(SI(100), listW * 13 / 100));
+  ListView_SetColumnWidth(g_reviewList, 2, SI(86));
+  ListView_SetColumnWidth(g_reviewList, 3, SI(116));
+  ListView_SetColumnWidth(g_reviewList, 4, max(SI(180), listW * 31 / 100));
+  int y = hgt - SI(46);
+  MoveWindow(GetDlgItem(h, RV_SUMMARY), SI(18), y + SI(4), max(SI(130), w - SI(530)), SI(22), TRUE);
+  MoveWindow(GetDlgItem(h, RV_ALL), max(SI(140), w - SI(500)), y, SI(86), SI(30), TRUE);
+  MoveWindow(GetDlgItem(h, RV_NONE), max(SI(230), w - SI(410)), y, SI(86), SI(30), TRUE);
+  MoveWindow(GetDlgItem(h, RV_INSPECT), max(SI(320), w - SI(320)), y, SI(86), SI(30), TRUE);
+  MoveWindow(GetDlgItem(h, RV_STAGE), max(SI(410), w - SI(224)), y, SI(136), SI(30), TRUE);
+  MoveWindow(GetDlgItem(h, RV_CLOSE), max(SI(550), w - SI(80)), y, SI(64), SI(30), TRUE);
 }
 
 static void stage_review_selection() {
@@ -680,7 +817,7 @@ static void stage_review_selection() {
     args += L" --select \"" + g_reviewItems[i].path + L"\"";
     bytes += g_reviewItems[i].bytes; ++n;
   }
-  if (!n) { MessageBoxW(g_reviewWnd, L"Select at least one eligible item before continuing.", L"Nothing selected", MB_OK | MB_ICONINFORMATION); return; }
+  if (!n) { show_prompt(L"Nothing selected", L"Choose at least one eligible item before staging a quarantine. Protected items cannot be selected.", L"Close"); return; }
   g_pending = {true, L"Quarantine " + human(bytes), args, g_reviewApplyKind};
   g_confirming = false;
   set_status(std::to_wstring(n) + L" selected item(s) staged - click Quarantine, then Confirm");
@@ -691,10 +828,15 @@ static void stage_review_selection() {
 static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
   switch (m) {
     case WM_CREATE: {
+      apply_popup_chrome(h);
       g_reviewList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
           WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SINGLESEL,
           0, 0, 0, 0, h, (HMENU)RV_LIST, g_inst, nullptr);
       ListView_SetExtendedListViewStyle(g_reviewList, LVS_EX_FULLROWSELECT | LVS_EX_CHECKBOXES | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP);
+      ListView_SetBkColor(g_reviewList, CR(T.card));
+      ListView_SetTextBkColor(g_reviewList, CR(T.card));
+      ListView_SetTextColor(g_reviewList, CR(T.text));
+      set_popup_font(g_reviewList);
       struct Col { const wchar_t* name; int width; } cols[] = {{L"Path", 320}, {L"Category", 110}, {L"Size", 90}, {L"Confidence", 100}, {L"Reason", 360}};
       for (int i = 0; i < 5; ++i) { LVCOLUMNW c{}; c.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM; c.pszText = (LPWSTR)cols[i].name; c.cx = cols[i].width; c.iSubItem = i; ListView_InsertColumn(g_reviewList, i, &c); }
       for (size_t i = 0; i < g_reviewItems.size(); ++i) {
@@ -706,23 +848,55 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         ListView_SetItemText(g_reviewList, (int)i, 3, (LPWSTR)row.confidence.c_str());
         ListView_SetItemText(g_reviewList, (int)i, 4, (LPWSTR)row.reason.c_str());
         ListView_SetCheckState(g_reviewList, (int)i, row.selected && row.eligible);
+        if (!row.eligible) ListView_SetItemState(g_reviewList, (int)i, LVIS_CUT, LVIS_CUT);
       }
       CreateWindowW(L"BUTTON", L"Select all", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_ALL, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Clear all", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_NONE, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Inspect", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_INSPECT, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Stage quarantine", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_STAGE, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RV_CLOSE, g_inst, nullptr);
+      HWND summary = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, h, (HMENU)RV_SUMMARY, g_inst, nullptr);
+      set_popup_font(summary, g_uiBoldFont);
+      for (int id : {RV_ALL, RV_NONE, RV_INSPECT, RV_STAGE, RV_CLOSE}) set_popup_font(GetDlgItem(h, id), id == RV_STAGE ? g_uiBoldFont : g_uiFont);
       review_resize(h);
+      review_summary(h);
       return 0;
     }
+    case WM_ERASEBKGND: return 1;
+    case WM_PAINT:
+      paint_popup_header(h, L"Review cleanup candidates", L"Select eligible items, inspect the evidence, then stage a reversible quarantine.");
+      return 0;
     case WM_SIZE: review_resize(h); return 0;
+    case WM_NOTIFY: {
+      NMHDR* n = (NMHDR*)l;
+      if (n->idFrom == RV_LIST) {
+        if (n->code == LVN_ITEMCHANGING) {
+          NMLISTVIEW* change = (NMLISTVIEW*)l;
+          if (change->iItem >= 0 && (size_t)change->iItem < g_reviewItems.size() &&
+              !g_reviewItems[(size_t)change->iItem].eligible && (change->uChanged & LVIF_STATE) &&
+              ((change->uOldState ^ change->uNewState) & LVIS_STATEIMAGEMASK)) return TRUE;
+        }
+        if (n->code == LVN_ITEMCHANGED) review_summary(h);
+        if (n->code == NM_DBLCLK) {
+          int i = ListView_GetNextItem(g_reviewList, -1, LVNI_SELECTED);
+          if (i >= 0 && (size_t)i < g_reviewItems.size()) start_job(K_DETAILS, L"explain \"" + g_reviewItems[(size_t)i].path + L"\"", L"Inspecting selected item...");
+        }
+      }
+      return 0;
+    }
+    case WM_CTLCOLORSTATIC:
+      SetTextColor((HDC)w, CR(T.sub)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
+    case WM_CTLCOLORBTN:
+      SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
     case WM_COMMAND:
       switch (LOWORD(w)) {
         case RV_ALL:
           for (size_t i = 0; i < g_reviewItems.size(); ++i) if (g_reviewItems[i].eligible) ListView_SetCheckState(g_reviewList, (int)i, TRUE);
+          review_summary(h);
           return 0;
         case RV_NONE:
           for (size_t i = 0; i < g_reviewItems.size(); ++i) ListView_SetCheckState(g_reviewList, (int)i, FALSE);
+          review_summary(h);
           return 0;
         case RV_INSPECT: {
           int i = ListView_GetNextItem(g_reviewList, -1, LVNI_SELECTED);
@@ -738,11 +912,50 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
   return DefWindowProcW(h, m, w, l);
 }
 
+static LRESULT CALLBACK ReportWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+  switch (m) {
+    case WM_CREATE: {
+      apply_popup_chrome(h);
+      g_reportEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", g_reportText.c_str(),
+          WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | ES_WANTRETURN,
+          0, 0, 0, 0, h, (HMENU)RP_EDIT, g_inst, nullptr);
+      SendMessageW(g_reportEdit, EM_SETBKGNDCOLOR, 0, CR(T.card));
+      set_popup_font(g_reportEdit, g_uiFont);
+      HWND summary = CreateWindowW(L"STATIC", L"Read-only report · use Copy to share it", WS_CHILD | WS_VISIBLE | SS_LEFT,
+          0, 0, 0, 0, h, (HMENU)RP_SUMMARY, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Copy", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RP_COPY, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, h, (HMENU)RP_CLOSE, g_inst, nullptr);
+      set_popup_font(summary, g_uiSmallFont);
+      set_popup_font(GetDlgItem(h, RP_COPY));
+      set_popup_font(GetDlgItem(h, RP_CLOSE), g_uiBoldFont);
+      report_resize(h);
+      return 0;
+    }
+    case WM_ERASEBKGND: return 1;
+    case WM_PAINT:
+      paint_popup_header(h, L"Report", L"A complete local record of the most recent command. No files are created.");
+      return 0;
+    case WM_SIZE: report_resize(h); return 0;
+    case WM_CTLCOLOREDIT:
+      SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.card)); return (LRESULT)g_popupCardBrush;
+    case WM_CTLCOLORSTATIC:
+      SetTextColor((HDC)w, CR(T.sub)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
+    case WM_CTLCOLORBTN:
+      SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
+    case WM_COMMAND:
+      if (LOWORD(w) == RP_COPY) { SendMessageW(g_reportEdit, EM_SETSEL, 0, -1); SendMessageW(g_reportEdit, WM_COPY, 0, 0); SetWindowTextW(GetDlgItem(h, RP_SUMMARY), L"Report copied to the clipboard"); return 0; }
+      if (LOWORD(w) == RP_CLOSE) { DestroyWindow(h); return 0; }
+      break;
+    case WM_DESTROY: g_reportWnd = nullptr; g_reportEdit = nullptr; return 0;
+  }
+  return DefWindowProcW(h, m, w, l);
+}
+
 static void show_review_window() {
   if (g_reviewItems.empty()) return;
   if (g_reviewWnd) { SetForegroundWindow(g_reviewWnd); return; }
   g_reviewWnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"CnaReviewWnd", L"Clean-n-Adapt review",
-      WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1040, 620, g_hwnd, nullptr, g_inst, nullptr);
+      WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(1100), SI(680), g_hwnd, nullptr, g_inst, nullptr);
   if (!g_reviewWnd) set_status(L"Could not open the review window", true);
 }
 
@@ -1198,8 +1411,9 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
           if (!g_busy) start_job(K_DEBLOAT, L"debloat scan --json", L"Reviewing bloat apps\u2026");
           break;
         case CM_UNDO_DEBLOAT:
-          if (MessageBoxW(h, L"Restore the previous values for every debloat change (privacy tweaks, startup items, services)?\n\nRemoved Store apps are not affected.", L"Undo debloat changes", MB_YESNO | MB_ICONQUESTION) == IDYES)
-            start_job(K_DEBLOAT_UNDO, L"debloat undo --all --yes", L"Restoring settings\u2026");
+          if (!g_busy) show_prompt(L"Undo debloat changes",
+              L"Restore the recorded values for privacy tweaks, startup items, and services. Removed Microsoft Store apps are not affected.",
+              L"Restore", K_DEBLOAT_UNDO, L"debloat undo --all --yes", L"Restoring settings\u2026");
           break;
         case CM_EXIT: DestroyWindow(h); break;
       }
@@ -1212,7 +1426,12 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       return 0;
     }
     case WM_SETTINGCHANGE:
-      if (l && lstrcmpW((LPCWSTR)l, L"ImmersiveColorSet") == 0) { load_theme(); apply_dwm(); invalidate(); }
+      if (l && lstrcmpW((LPCWSTR)l, L"ImmersiveColorSet") == 0) {
+        load_theme(); apply_dwm();
+        if (g_reviewWnd) { apply_popup_chrome(g_reviewWnd); ListView_SetBkColor(g_reviewList, CR(T.card)); ListView_SetTextBkColor(g_reviewList, CR(T.card)); ListView_SetTextColor(g_reviewList, CR(T.text)); RedrawWindow(g_reviewWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN); }
+        if (g_reportWnd) { apply_popup_chrome(g_reportWnd); SendMessageW(g_reportEdit, EM_SETBKGNDCOLOR, 0, CR(T.card)); RedrawWindow(g_reportWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN); }
+        invalidate();
+      }
       return 0;
     case WM_EXITSIZEMOVE: save_settings(); return 0;
     case WM_CLOSE: show_widget(false); return 0;
@@ -1278,6 +1497,16 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR cmd, int) {
   review.lpszClassName = L"CnaReviewWnd";
   review.hCursor = LoadCursorW(nullptr, IDC_ARROW);
   RegisterClassExW(&review);
+  WNDCLASSEXW report = wc;
+  report.lpfnWndProc = ReportWndProc;
+  report.lpszClassName = L"CnaReportWnd";
+  report.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  RegisterClassExW(&report);
+  WNDCLASSEXW prompt = wc;
+  prompt.lpfnWndProc = PromptWndProc;
+  prompt.lpszClassName = L"CnaPromptWnd";
+  prompt.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  RegisterClassExW(&prompt);
   g_hwnd = CreateWindowExW(WS_EX_TOOLWINDOW | (g_pinned ? WS_EX_TOPMOST : 0), kClass, L"Clean-n-Adapt", WS_POPUP, 0, 0, 100, 100, nullptr, nullptr, hi, nullptr);
   if (!g_hwnd) return 1;
   update_scale();
@@ -1299,6 +1528,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR cmd, int) {
     DispatchMessageW(&msg);
   }
   GdiplusShutdown(g_gdip);
+  if (g_uiFont) DeleteObject(g_uiFont);
+  if (g_uiSmallFont) DeleteObject(g_uiSmallFont);
+  if (g_uiBoldFont) DeleteObject(g_uiBoldFont);
+  if (g_popupBrush) DeleteObject(g_popupBrush);
+  if (g_popupCardBrush) DeleteObject(g_popupCardBrush);
   if (mtx) CloseHandle(mtx);
   return 0;
 }
