@@ -74,6 +74,9 @@ if(WIN32)
   # Stage the executables first. Passing generator-produced build paths directly to NSIS was
   # unreliable in multi-config CI builds; this target gives the packager stable, real files.
   set(CNA_STAGE_DIR "${CMAKE_BINARY_DIR}/package/$<CONFIG>")
+  string(REPLACE "/" "\\" CNA_STAGE_DIR_NSIS "${CNA_STAGE_DIR}")
+  file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}" CNA_SOURCE_DIR_NSIS)
+  file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/dist" CNA_DIST_DIR_NSIS)
   add_custom_target(stage_release
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CNA_STAGE_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:cna>" "${CNA_STAGE_DIR}/cna.exe"
@@ -86,14 +89,21 @@ if(WIN32)
     HINTS "$ENV{ProgramFiles}/NSIS" "$ENV{ProgramFiles\(x86\)}/NSIS" "C:/Program Files (x86)/NSIS" "C:/Program Files/NSIS")
   if(MAKENSIS_EXE)
     add_custom_target(installer ALL
+      # Keep staging in the same rule as NSIS. This avoids relying on a separate
+      # MSBuild custom-target handoff in multi-config CI environments.
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${CNA_STAGE_DIR}"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:cna>" "${CNA_STAGE_DIR}/cna.exe"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:cna-widget>" "${CNA_STAGE_DIR}/cna-widget.exe"
+      COMMAND ${CMAKE_COMMAND} -E compare_files "$<TARGET_FILE:cna>" "${CNA_STAGE_DIR}/cna.exe"
+      COMMAND ${CMAKE_COMMAND} -E compare_files "$<TARGET_FILE:cna-widget>" "${CNA_STAGE_DIR}/cna-widget.exe"
       COMMAND "${MAKENSIS_EXE}" -V2
               "-DVERSION=${CNA_VERSION}"
-              "-DCNA_EXE=${CNA_STAGE_DIR}/cna.exe"
-              "-DWIDGET_EXE=${CNA_STAGE_DIR}/cna-widget.exe"
-              "-DROOT=${CMAKE_SOURCE_DIR}"
-              "-DOUT_DIR=${CMAKE_SOURCE_DIR}/dist"
+              "-DCNA_EXE=${CNA_STAGE_DIR_NSIS}\\cna.exe"
+              "-DWIDGET_EXE=${CNA_STAGE_DIR_NSIS}\\cna-widget.exe"
+              "-DROOT=${CNA_SOURCE_DIR_NSIS}"
+              "-DOUT_DIR=${CNA_DIST_DIR_NSIS}"
               "${CMAKE_SOURCE_DIR}/installer/cna.nsi"
-      DEPENDS stage_release
+      DEPENDS cna cna-widget
       COMMENT "Building installer dist/Clean-n-Adapt-Setup-${CNA_VERSION}.exe"
       VERBATIM)
   else()

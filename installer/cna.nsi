@@ -54,14 +54,14 @@ VIAddVersionKey "LegalCopyright"  "Copyright (C) ${PUBLISHER}"
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 
-!define MUI_ICON   "${ROOT}/assets/cna.ico"
-!define MUI_UNICON "${ROOT}/assets/cna.ico"
+!define MUI_ICON   "${ROOT}\assets\cna.ico"
+!define MUI_UNICON "${ROOT}\assets\cna.ico"
 !define MUI_ABORTWARNING
 ; The branded sidebar is optional so source-only checkouts and release builds
 ; remain packageable even when artwork is intentionally omitted.
-!if /FileExists "${ROOT}/assets/installer-side.bmp"
-  !define MUI_WELCOMEFINISHPAGE_BITMAP   "${ROOT}/assets/installer-side.bmp"
-  !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${ROOT}/assets/installer-side.bmp"
+!if /FileExists "${ROOT}\assets\installer-side.bmp"
+  !define MUI_WELCOMEFINISHPAGE_BITMAP   "${ROOT}\assets\installer-side.bmp"
+  !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${ROOT}\assets\installer-side.bmp"
 !endif
 !define MUI_FINISHPAGE_RUN "$INSTDIR\cna-widget.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Start ${APP} now"
@@ -89,8 +89,8 @@ Section "${APP} (required)" SecMain
   SetOutPath "$INSTDIR"
   File "${CNA_EXE}"
   File "${WIDGET_EXE}"
-  File "${ROOT}/README.md"
-  File "${ROOT}/CHANGELOG.md"
+  File "${ROOT}\README.md"
+  File "${ROOT}\CHANGELOG.md"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   ; Start menu
@@ -115,7 +115,7 @@ SectionEnd
 
 Section "Documentation" SecDocs
   SetOutPath "$INSTDIR\docs"
-  File /r "${ROOT}/docs/*.*"
+  File /r "${ROOT}\docs\*.*"
   SetOutPath "$INSTDIR"
   CreateShortcut "$SMPROGRAMS\${APP}\${APP} documentation.lnk" "$INSTDIR\docs"
 SectionEnd
