@@ -17,6 +17,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cwctype>
+#include <numeric>
 #include <string>
 #include <vector>
 using std::max;
@@ -70,7 +72,10 @@ struct ReviewItem {
 static std::vector<ReviewItem> g_reviewItems;
 static int g_reviewApplyKind = K_NONE;
 static std::wstring g_reviewBaseArgs;
-static HWND g_reviewWnd = nullptr, g_reviewList = nullptr;
+static HWND g_reviewWnd = nullptr, g_reviewList = nullptr, g_reviewSearch = nullptr, g_reviewFilterBox = nullptr;
+static std::vector<size_t> g_reviewVisible;
+static int g_reviewFilter = 0, g_reviewSort = 2;
+static bool g_reviewSortDesc = true, g_reviewRebuilding = false;
 static HWND g_reportWnd = nullptr, g_reportEdit = nullptr;
 static std::wstring g_reportText;
 struct Prompt { std::wstring title, body, action, args, busy; int kind = K_NONE; };
@@ -169,6 +174,10 @@ static uint64_t numat(const std::string& j, size_t p) {
   uint64_t v = 0;
   while (p < j.size() && j[p] >= '0' && j[p] <= '9') v = v * 10 + (uint64_t)(j[p++] - '0');
   return v;
+}
+static bool boolat(const std::string& j, size_t p, bool fallback = false) {
+  if (p == std::string::npos) return fallback;
+  return j.compare(p, 4, "true") == 0;
 }
 static std::string strat(const std::string& j, size_t p) {
   std::string o;
@@ -695,7 +704,7 @@ static void paint_popup_header(HWND h, const std::wstring& title, const std::wst
   EndPaint(h, &ps);
 }
 
-enum { RV_LIST = 200, RV_ALL, RV_NONE, RV_INSPECT, RV_STAGE, RV_CLOSE, RV_SUMMARY, RV_HINT };
+enum { RV_LIST = 200, RV_ALL, RV_NONE, RV_INSPECT, RV_STAGE, RV_CLOSE, RV_SUMMARY, RV_HINT, RV_FILTER, RV_SEARCH };
 enum { RP_EDIT = 300, RP_COPY, RP_CLOSE, RP_SUMMARY };
 enum { PP_BODY = 400, PP_CANCEL, PP_ACCEPT };
 enum { PC_CLOSE = 480 };
@@ -863,25 +872,82 @@ static void show_prompt(const std::wstring& title, const std::wstring& body, con
   if (!g_promptWnd) set_status(L"Could not open the confirmation window", true);
 }
 
+static std::wstring lower_w(std::wstring s) {
+  for (wchar_t& c : s) c = (wchar_t)towlower(c);
+  return s;
+}
+
+static int review_state(const ReviewItem& row) {
+  if (row.eligible) return 1; // established rule / verified duplicate / official operation
+  if (row.category.find(L"Protected") != std::wstring::npos || row.category.find(L"Keeper") != std::wstring::npos) return 3;
+  return 2; // evidence exists, but action is not eligible
+}
+
+static bool review_matches(const ReviewItem& row, const std::wstring& query) {
+  if (g_reviewFilter && review_state(row) != g_reviewFilter) return false;
+  if (query.empty()) return true;
+  std::wstring hay = lower_w(row.path + L"\n" + row.category + L"\n" + row.confidence + L"\n" + row.reason);
+  return hay.find(query) != std::wstring::npos;
+}
+
+static void review_rebuild(HWND h) {
+  if (!g_reviewList) return;
+  wchar_t text[512]{};
+  if (g_reviewSearch) GetWindowTextW(g_reviewSearch, text, 512);
+  std::wstring query = lower_w(text);
+  g_reviewVisible.clear();
+  for (size_t i = 0; i < g_reviewItems.size(); ++i) if (review_matches(g_reviewItems[i], query)) g_reviewVisible.push_back(i);
+  auto cmp = [](const ReviewItem& a, const ReviewItem& b, int col) {
+    if (col == 2) return a.bytes < b.bytes;
+    if (col == 1) return lower_w(a.category) < lower_w(b.category);
+    if (col == 3) return lower_w(a.confidence) < lower_w(b.confidence);
+    if (col == 4) return lower_w(a.reason) < lower_w(b.reason);
+    return lower_w(a.path) < lower_w(b.path);
+  };
+  std::sort(g_reviewVisible.begin(), g_reviewVisible.end(), [&](size_t a, size_t b) {
+    bool less = cmp(g_reviewItems[a], g_reviewItems[b], g_reviewSort);
+    bool more = cmp(g_reviewItems[b], g_reviewItems[a], g_reviewSort);
+    if (!less && !more) return a < b;
+    return g_reviewSortDesc ? more : less;
+  });
+  g_reviewRebuilding = true;
+  ListView_DeleteAllItems(g_reviewList);
+  for (size_t visible = 0; visible < g_reviewVisible.size(); ++visible) {
+    size_t index = g_reviewVisible[visible];
+    const auto& row = g_reviewItems[index];
+    LVITEMW it{}; it.mask = LVIF_TEXT | LVIF_PARAM; it.iItem = (int)visible; it.lParam = (LPARAM)index; it.pszText = (LPWSTR)row.path.c_str();
+    ListView_InsertItem(g_reviewList, &it);
+    ListView_SetItemText(g_reviewList, (int)visible, 1, (LPWSTR)row.category.c_str());
+    std::wstring size = row.bytes ? human(row.bytes) : L"—"; ListView_SetItemText(g_reviewList, (int)visible, 2, (LPWSTR)size.c_str());
+    ListView_SetItemText(g_reviewList, (int)visible, 3, (LPWSTR)row.confidence.c_str());
+    ListView_SetItemText(g_reviewList, (int)visible, 4, (LPWSTR)row.reason.c_str());
+    ListView_SetCheckState(g_reviewList, (int)visible, row.selected && row.eligible);
+    if (!row.eligible) ListView_SetItemState(g_reviewList, (int)visible, LVIS_CUT, LVIS_CUT);
+  }
+  g_reviewRebuilding = false;
+}
+
 static void review_summary(HWND h) {
   uint64_t bytes = 0;
   int selected = 0, eligible = 0;
-  for (size_t i = 0; i < g_reviewItems.size(); ++i) {
-    if (g_reviewItems[i].eligible) ++eligible;
-    if (g_reviewList && g_reviewItems[i].eligible && ListView_GetCheckState(g_reviewList, (int)i)) {
-      ++selected; bytes += g_reviewItems[i].bytes;
-    }
+  for (const auto& row : g_reviewItems) {
+    if (row.eligible) ++eligible;
+    if (row.selected && row.eligible) { ++selected; bytes += row.bytes; }
   }
-  std::wstring summary = std::to_wstring(selected) + L" of " + std::to_wstring(eligible) +
-      (g_reviewApplyKind == K_QAPPS ? L" official uninstallers selected" : L" eligible selected");
+  int hidden = (int)g_reviewItems.size() - (int)g_reviewVisible.size();
+  std::wstring summary = std::to_wstring(selected) + L" selected of " + std::to_wstring(eligible) +
+      (g_reviewApplyKind == K_QAPPS ? L" official uninstallers" : L" eligible items");
   if (selected && g_reviewApplyKind != K_QAPPS) summary += L"  ·  " + human(bytes);
+  if (hidden) summary += L"  ·  " + std::to_wstring(hidden) + L" hidden by filter";
   SetWindowTextW(GetDlgItem(h, RV_SUMMARY), summary.c_str());
 }
 
 static void review_resize(HWND h) {
   RECT r; GetClientRect(h, &r);
   int w = r.right - r.left, hgt = r.bottom - r.top;
-  MoveWindow(g_reviewList, SI(16), SI(98), max(SI(160), w - SI(32)), max(SI(120), hgt - SI(160)), TRUE);
+  MoveWindow(g_reviewFilterBox, SI(16), SI(72), SI(142), SI(26), TRUE);
+  MoveWindow(g_reviewSearch, SI(166), SI(72), max(SI(180), w - SI(182)), SI(26), TRUE);
+  MoveWindow(g_reviewList, SI(16), SI(108), max(SI(160), w - SI(32)), max(SI(120), hgt - SI(170)), TRUE);
   int listW = max(SI(160), w - SI(32));
   ListView_SetColumnWidth(g_reviewList, 0, max(SI(190), listW * 30 / 100));
   ListView_SetColumnWidth(g_reviewList, 1, max(SI(100), listW * 13 / 100));
@@ -909,25 +975,46 @@ static void stage_review_selection() {
   uint64_t bytes = 0;
   int n = 0;
   std::wstring app_label;
+  std::wstring listed;
   for (size_t i = 0; i < g_reviewItems.size(); ++i) {
-    bool checked = ListView_GetCheckState(g_reviewList, (int)i) != FALSE;
-    g_reviewItems[i].selected = checked && g_reviewItems[i].eligible;
-    if (!g_reviewItems[i].selected) continue;
+    if (!g_reviewItems[i].selected || !g_reviewItems[i].eligible) continue;
     if (g_reviewApplyKind == K_QAPPS) {
       if (n) { show_prompt(L"Choose one app", L"Official uninstallers can be interactive. Select one app, complete its own uninstaller, then review its leftovers.", L"Close"); return; }
       args += L" --app \"" + g_reviewItems[i].command + L"\"";
       app_label = g_reviewItems[i].path;
     } else args += L" --select \"" + g_reviewItems[i].path + L"\"";
     bytes += g_reviewItems[i].bytes; ++n;
+    if (n <= 5) listed += (listed.empty() ? L"" : L"\n") + L"• " + g_reviewItems[i].path;
   }
   if (!n) { show_prompt(L"Nothing selected", g_reviewApplyKind == K_QAPPS ? L"Only apps with a registered official uninstaller can be selected." : L"Choose at least one eligible item before staging a quarantine. Protected items cannot be selected.", L"Close"); return; }
   g_pending = g_reviewApplyKind == K_QAPPS
       ? Pending{true, L"Uninstall " + app_label, args, K_APP_REMOVE}
       : Pending{true, L"Quarantine " + human(bytes), args, g_reviewApplyKind};
-  g_confirming = false;
-  set_status(g_reviewApplyKind == K_QAPPS ? L"Official uninstaller staged - click Uninstall, then Confirm" : std::to_wstring(n) + L" selected item(s) staged - click Quarantine, then Confirm");
   DestroyWindow(g_reviewWnd);
+  if (g_reviewApplyKind == K_QAPPS) {
+    show_prompt(L"Confirm official uninstaller", L"Clean-n-Adapt will launch the registered uninstaller for:\n\n" + app_label +
+        L"\n\nNo install folder or app data will be deleted by Clean-n-Adapt. You can audit leftovers after it finishes.",
+        L"Launch uninstaller", K_APP_REMOVE, args, L"Running official uninstaller…");
+  } else {
+    std::wstring body = std::to_wstring(n) + L" selected item(s), " + human(bytes) +
+        L", will be moved to quarantine. Nothing is permanently deleted.\n\n" + listed;
+    if (n > 5) body += L"\n… and " + std::to_wstring(n - 5) + L" more selected item(s).";
+    show_prompt(L"Confirm quarantine", body, L"Move to quarantine", g_reviewApplyKind, args, L"Moving selected items…");
+  }
+  set_status(L"Waiting for confirmation of the selected items");
   invalidate();
+}
+
+static void show_review_item_detail(size_t index) {
+  if (index >= g_reviewItems.size()) return;
+  const ReviewItem& row = g_reviewItems[index];
+  std::wstring body = L"Path or application\n" + row.path + L"\n\nDecision\n" + row.category +
+      L"\n\nEvidence\n" + row.confidence + L"\n\nExplanation\n" + row.reason +
+      L"\n\nRecoverable size\n" + (row.bytes ? human(row.bytes) : L"Not measured");
+  if (!row.eligible) body += L"\n\nThis item cannot be selected for the current operation.";
+  else if (g_reviewApplyKind == K_QAPPS) body += L"\n\nThe registered official uninstaller is the only removal method Clean-n-Adapt will launch.";
+  else body += L"\n\nThe proposed operation is quarantine, so the item can be restored later.";
+  show_prompt(L"Item details", body, L"Close");
 }
 
 static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -942,20 +1029,16 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       ListView_SetTextBkColor(g_reviewList, CR(T.card));
       ListView_SetTextColor(g_reviewList, CR(T.text));
       set_popup_font(g_reviewList);
+      g_reviewFilterBox = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+          0, 0, 0, 0, h, (HMENU)RV_FILTER, g_inst, nullptr);
+      for (const wchar_t* label : {L"All results", L"Eligible", L"Needs review", L"Blocked / protected"}) SendMessageW(g_reviewFilterBox, CB_ADDSTRING, 0, (LPARAM)label);
+      SendMessageW(g_reviewFilterBox, CB_SETCURSEL, 0, 0);
+      g_reviewSearch = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+          0, 0, 0, 0, h, (HMENU)RV_SEARCH, g_inst, nullptr);
+      set_popup_font(g_reviewFilterBox); set_popup_font(g_reviewSearch);
       struct Col { const wchar_t* name; int width; } cols[] = {{g_reviewApplyKind == K_QAPPS ? L"Application" : L"Path", 320}, {L"Decision", 110}, {L"Size", 90}, {L"Evidence", 100}, {L"Why this result", 360}};
       for (int i = 0; i < 5; ++i) { LVCOLUMNW c{}; c.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM; c.pszText = (LPWSTR)cols[i].name; c.cx = cols[i].width; c.iSubItem = i; ListView_InsertColumn(g_reviewList, i, &c); }
-      for (size_t i = 0; i < g_reviewItems.size(); ++i) {
-        auto& row = g_reviewItems[i];
-        LVITEMW it{}; it.mask = LVIF_TEXT; it.iItem = (int)i; it.pszText = (LPWSTR)row.path.c_str();
-        ListView_InsertItem(g_reviewList, &it);
-        ListView_SetItemText(g_reviewList, (int)i, 1, (LPWSTR)row.category.c_str());
-        std::wstring sz = human(row.bytes); ListView_SetItemText(g_reviewList, (int)i, 2, (LPWSTR)sz.c_str());
-        ListView_SetItemText(g_reviewList, (int)i, 3, (LPWSTR)row.confidence.c_str());
-        ListView_SetItemText(g_reviewList, (int)i, 4, (LPWSTR)row.reason.c_str());
-        ListView_SetCheckState(g_reviewList, (int)i, row.selected && row.eligible);
-        if (!row.eligible) ListView_SetItemState(g_reviewList, (int)i, LVIS_CUT, LVIS_CUT);
-      }
-      CreateWindowW(L"BUTTON", L"Select all", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_ALL, g_inst, nullptr);
+      CreateWindowW(L"BUTTON", L"Select shown", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_ALL, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Clear all", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_NONE, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Inspect", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_INSPECT, g_inst, nullptr);
       CreateWindowW(L"BUTTON", g_reviewApplyKind == K_QAPPS ? L"Start uninstall" : L"Stage quarantine", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_STAGE, g_inst, nullptr);
@@ -965,6 +1048,7 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       for (int id : {RV_ALL, RV_NONE, RV_INSPECT, RV_STAGE, RV_CLOSE}) set_popup_font(GetDlgItem(h, id), id == RV_STAGE ? g_uiBoldFont : g_uiFont);
       create_popup_close(h);
       review_resize(h);
+      review_rebuild(h);
       review_summary(h);
       return 0;
     }
@@ -982,33 +1066,64 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       if (n->idFrom == RV_LIST) {
         if (n->code == LVN_ITEMCHANGING) {
           NMLISTVIEW* change = (NMLISTVIEW*)l;
-          if (change->iItem >= 0 && (size_t)change->iItem < g_reviewItems.size() &&
-              !g_reviewItems[(size_t)change->iItem].eligible && (change->uChanged & LVIF_STATE) &&
+          if (change->iItem < 0) return 0;
+          LVITEMW item{}; item.mask = LVIF_PARAM; item.iItem = change->iItem;
+          SendMessageW(g_reviewList, LVM_GETITEMW, 0, (LPARAM)&item);
+          size_t index = (size_t)item.lParam;
+          if (!g_reviewRebuilding && change->iItem >= 0 && index < g_reviewItems.size() &&
+              !g_reviewItems[index].eligible && (change->uChanged & LVIF_STATE) &&
               ((change->uOldState ^ change->uNewState) & LVIS_STATEIMAGEMASK)) return TRUE;
         }
-        if (n->code == LVN_ITEMCHANGED) review_summary(h);
+        if (n->code == LVN_ITEMCHANGED && !g_reviewRebuilding) {
+          NMLISTVIEW* change = (NMLISTVIEW*)l;
+          if (change->iItem >= 0 && (change->uChanged & LVIF_STATE) &&
+              ((change->uOldState ^ change->uNewState) & LVIS_STATEIMAGEMASK)) {
+            LVITEMW item{}; item.mask = LVIF_PARAM; item.iItem = change->iItem;
+            SendMessageW(g_reviewList, LVM_GETITEMW, 0, (LPARAM)&item);
+            size_t index = (size_t)item.lParam;
+            if (index < g_reviewItems.size()) g_reviewItems[index].selected = ListView_GetCheckState(g_reviewList, change->iItem) != FALSE && g_reviewItems[index].eligible;
+          }
+          review_summary(h);
+        }
+        if (n->code == LVN_COLUMNCLICK) {
+          int column = ((NMLISTVIEW*)l)->iSubItem;
+          g_reviewSortDesc = column == g_reviewSort ? !g_reviewSortDesc : column == 2;
+          g_reviewSort = column;
+          review_rebuild(h); review_summary(h);
+          return 0;
+        }
         if (n->code == NM_DBLCLK) {
           int i = ListView_GetNextItem(g_reviewList, -1, LVNI_SELECTED);
-          if (i >= 0 && (size_t)i < g_reviewItems.size()) start_job(K_DETAILS, L"explain \"" + g_reviewItems[(size_t)i].path + L"\"", L"Inspecting selected item...");
+          if (i >= 0) {
+            LVITEMW item{}; item.mask = LVIF_PARAM; item.iItem = i; SendMessageW(g_reviewList, LVM_GETITEMW, 0, (LPARAM)&item);
+            if ((size_t)item.lParam < g_reviewItems.size()) show_review_item_detail((size_t)item.lParam);
+          }
         }
       }
       return 0;
     }
     case WM_CTLCOLORSTATIC:
       SetTextColor((HDC)w, CR(T.sub)); SetBkColor((HDC)w, CR(T.bg)); return (LRESULT)g_popupBrush;
+    case WM_CTLCOLOREDIT:
+      SetTextColor((HDC)w, CR(T.text)); SetBkColor((HDC)w, CR(T.card)); return (LRESULT)g_popupCardBrush;
     case WM_COMMAND:
+      if (LOWORD(w) == RV_SEARCH && HIWORD(w) == EN_CHANGE) { review_rebuild(h); review_summary(h); return 0; }
+      if (LOWORD(w) == RV_FILTER && HIWORD(w) == CBN_SELCHANGE) { g_reviewFilter = (int)SendMessageW(g_reviewFilterBox, CB_GETCURSEL, 0, 0); review_rebuild(h); review_summary(h); return 0; }
       switch (LOWORD(w)) {
         case RV_ALL:
-          for (size_t i = 0; i < g_reviewItems.size(); ++i) if (g_reviewItems[i].eligible) ListView_SetCheckState(g_reviewList, (int)i, TRUE);
-          review_summary(h);
+          for (size_t i : g_reviewVisible) if (g_reviewItems[i].eligible) g_reviewItems[i].selected = true;
+          review_rebuild(h); review_summary(h);
           return 0;
         case RV_NONE:
-          for (size_t i = 0; i < g_reviewItems.size(); ++i) ListView_SetCheckState(g_reviewList, (int)i, FALSE);
-          review_summary(h);
+          for (auto& row : g_reviewItems) row.selected = false;
+          review_rebuild(h); review_summary(h);
           return 0;
         case RV_INSPECT: {
           int i = ListView_GetNextItem(g_reviewList, -1, LVNI_SELECTED);
-          if (i >= 0 && (size_t)i < g_reviewItems.size()) start_job(K_DETAILS, L"explain \"" + g_reviewItems[(size_t)i].path + L"\"", L"Inspecting selected item...");
+          if (i >= 0) {
+            LVITEMW item{}; item.mask = LVIF_PARAM; item.iItem = i; SendMessageW(g_reviewList, LVM_GETITEMW, 0, (LPARAM)&item);
+            if ((size_t)item.lParam < g_reviewItems.size()) show_review_item_detail((size_t)item.lParam);
+          }
           return 0;
         }
         case RV_STAGE: stage_review_selection(); return 0;
@@ -1167,6 +1282,7 @@ static void on_done(JobData* j) {
     while ((p = o.find("{\"name\":\"", p)) != std::string::npos) {
       std::string name = strat(o, p + 8), publisher = strat(o, kpos(o, "publisher", p));
       std::string version = strat(o, kpos(o, "version", p));
+      std::string source = strat(o, kpos(o, "source", p));
       bool official = o.find("\"official_uninstaller\":true", p) != std::string::npos &&
           o.find("\"official_uninstaller\":true", p) < o.find('}', p);
       std::wstring evidence = official
@@ -1175,6 +1291,7 @@ static void on_done(JobData* j) {
       std::wstring detail = W(publisher);
       if (!version.empty()) detail += (detail.empty() ? L"" : L"  ") + W(version);
       if (detail.empty()) detail = L"Registry inventory";
+      if (!source.empty()) detail += L"\nSource: " + W(source);
       g_reviewItems.push_back({W(name), official ? L"Official uninstall" : L"Protected", evidence, detail, W(name), 0, official, false});
       if (shown < 3) { g_lines.push_back({W(name), official ? L"Official uninstall" : L"No uninstaller"}); ++shown; }
       ++total; if (official) ++removable;
@@ -1265,6 +1382,7 @@ static void on_done(JobData* j) {
     g_reportArgs = L"dupes --min-size 10M --limit 100";
     g_reviewItems.clear(); g_reviewApplyKind = K_NONE;
   g_reviewBaseArgs.clear();
+  g_reviewVisible.clear(); g_reviewFilter = 0; g_reviewSort = 2; g_reviewSortDesc = true;
     p = 0;
     while ((p = o.find("{\"size\":", p)) != std::string::npos) {
       uint64_t size = numat(o, kpos(o, "size", p));
@@ -1278,7 +1396,7 @@ static void on_done(JobData* j) {
         bool eligible = i != keeper;
         g_reviewItems.push_back({W(path), eligible ? L"Duplicate copy" : L"Keeper", eligible ? L"Verified" : L"Protected",
                                  eligible ? L"Full SHA-256 match; keeper: " + W(keeper_path) : L"Chosen keeper is never quarantined",
-                                  L"", size, eligible, eligible});
+                                  L"", size, eligible, false});
       }
       p += 8;
     }
@@ -1309,7 +1427,8 @@ static void on_done(JobData* j) {
         std::string path = strat(o, p + 8);
         uint64_t sc = numat(o, kpos(o, "score", p)), b = numat(o, kpos(o, "bytes", p));
         std::string why = strat(o, kpos(o, "reason", p));
-        g_reviewItems.push_back({W(path), L"Leftover", std::to_wstring(sc) + L" / 100", W(why), L"", b, true, true});
+        bool complete = boolat(o, kpos(o, "scan_complete", p), true);
+        g_reviewItems.push_back({W(path), complete ? L"Eligible leftover" : L"Needs review", complete ? std::to_wstring(sc) + L" / 100" : L"Scan incomplete", W(why), L"", b, complete, false});
         p += 9;
       }
       g_reviewApplyKind = K_QLEFT;
@@ -1366,9 +1485,10 @@ static void on_done(JobData* j) {
       while ((p = o.find("{\"path\":\"", p)) != std::string::npos) {
         std::string path = strat(o, p + 8), action = strat(o, kpos(o, "action", p));
         std::string src = strat(o, kpos(o, "source", p)), note = strat(o, kpos(o, "note", p));
-        std::wstring confidence = action == "clean" ? L"Eligible: " + W(src) : L"Evidence only";
+        bool complete = boolat(o, kpos(o, "scan_complete", p), true);
+        std::wstring confidence = !complete ? L"Scan incomplete" : action == "clean" ? L"Eligible: " + W(src) : L"Evidence only";
         g_reviewItems.push_back({W(path), action == "clean" ? L"Eligible" : L"Needs review", confidence, W(note),
-                                  L"", numat(o, kpos(o, "bytes", p)), action == "clean", action == "clean"});
+                                  L"", numat(o, kpos(o, "bytes", p)), action == "clean" && complete, false});
         p += 9;
       }
       g_reviewApplyKind = K_QSMART;

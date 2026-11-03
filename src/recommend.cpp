@@ -61,6 +61,10 @@ Item evaluate(const fs::path& p, const OwnerIndex& owners, uint64_t max_entries)
       it.note = "model candidate only; needs a known rule or your decision before it can be staged";
     }
   }
+  if (it.truncated && it.action == "clean") {
+    it.action = "review";
+    it.note = "scan coverage is incomplete; this item cannot be staged until it is inspected fully";
+  }
   return it;
 }
 } // namespace
@@ -145,9 +149,9 @@ int cmd_recommend(const Args& a) {
     std::printf("{\"items\":[");
     for (size_t k = 0; k < items.size(); ++k) {
       auto& i = items[k];
-      std::printf("%s{\"path\":\"%s\",\"name\":\"%s\",\"action\":\"%s\",\"class\":\"%s\",\"confidence\":%.3f,\"bytes\":%llu,\"source\":\"%s\",\"note\":\"%s\",\"because\":[",
+      std::printf("%s{\"path\":\"%s\",\"name\":\"%s\",\"action\":\"%s\",\"class\":\"%s\",\"confidence\":%.3f,\"bytes\":%llu,\"scan_complete\":%s,\"source\":\"%s\",\"note\":\"%s\",\"because\":[",
                   k ? "," : "", jesc(i.path).c_str(), jesc(i.name).c_str(), i.action.c_str(), i.cls.c_str(), i.conf, (unsigned long long)i.bytes,
-                  i.source.c_str(), jesc(i.note).c_str());
+                  i.truncated ? "false" : "true", i.source.c_str(), jesc(i.note).c_str());
       for (size_t w = 0; w < i.why.size(); ++w) std::printf("%s\"%s\"", w ? "," : "", jesc(i.why[w]).c_str());
       std::printf("]}");
     }

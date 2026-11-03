@@ -67,6 +67,7 @@ try:
     assert "OldToolCache" in names, names
     assert "EmptyFolder" not in names, names
     assert "SoftwareDistribution" not in names, names
+    assert all("scan_complete" in row for row in rem["remnants"]), rem
 
     run("remnants", "--apps-file", apps, "--min-score", "0", "--select", old_cache,
         "--quarantine", "--yes", "--json")

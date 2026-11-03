@@ -48,6 +48,7 @@ try:
     check("Package Cache is not suggested",           not any("Package Cache" in i["path"] for i in r["items"] if i["action"] == "clean"))
     check("Chrome profile (Bookmarks) not cleaned",   not any(i["path"].replace("\\", "/").endswith("Default") and i["action"] == "clean" for i in r["items"]))
     check("items carry reasons",                      all(("because" in i) for i in r["items"]))
+    check("items expose scan coverage",               all("scan_complete" in i for i in r["items"]))
     check("clean total is plausible (> 30 MB)",       r["clean_bytes"] > 30 * MB)
 
     run("recommend", "--min-size", "1M")                                       # no --apply: nothing may move

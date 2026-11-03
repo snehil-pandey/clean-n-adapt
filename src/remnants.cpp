@@ -421,8 +421,8 @@ int cmd_remnants(const Args& a) {
   if (G.json) {
     std::printf("{\"apps_known\":%zu,\"remnants\":[", apps.size());
     for (size_t i = 0; i < r.size(); ++i)
-      std::printf("%s{\"path\":\"%s\",\"kind\":\"%s\",\"score\":%d,\"bytes\":%llu,\"reason\":\"%s\"}", i ? "," : "", jesc(r[i].path).c_str(),
-                  r[i].kind.c_str(), r[i].score, (unsigned long long)r[i].bytes, jesc(r[i].reason).c_str());
+      std::printf("%s{\"path\":\"%s\",\"kind\":\"%s\",\"score\":%d,\"bytes\":%llu,\"scan_complete\":%s,\"reason\":\"%s\"}", i ? "," : "", jesc(r[i].path).c_str(),
+                   r[i].kind.c_str(), r[i].score, (unsigned long long)r[i].bytes, r[i].truncated ? "false" : "true", jesc(r[i].reason).c_str());
     std::printf("],\"stale_uninstall_entries\":[");
     for (size_t i = 0; i < stale.size(); ++i) std::printf("%s\"%s\"", i ? "," : "", jesc(stale[i]).c_str());
     std::printf("],\"total_bytes\":%llu,\"quarantined_bytes\":%llu}\n", (unsigned long long)total, (unsigned long long)qb);
