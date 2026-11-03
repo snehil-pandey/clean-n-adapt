@@ -33,10 +33,10 @@ widget / tray controller. No Python, Qt, SQLite or other runtime; a hard **125 M
 
 ## Install
 
-Run `Clean-n-Adapt-Setup-<version>.exe`. It installs for the current user only (no administrator rights, no UAC prompt),
-adds Start Menu entries and an entry in *Settings > Apps*, and can optionally add a desktop shortcut and start the widget
-with Windows. Installing a newer version over an old one upgrades it; uninstalling keeps your settings and quarantined
-files unless you say otherwise. Silent install: `Clean-n-Adapt-Setup-<version>.exe /S`. Details: [docs/BUILD.md](docs/BUILD.md).
+Run `Clean-n-Adapt-Setup-<version>.exe` and approve the UAC prompt. It installs system-wide in `Program Files` by default,
+registers in *Settings > Apps*, and adds Start Menu entries. It can also add a desktop shortcut and start the widget with
+Windows. Installing a newer version upgrades the existing location; uninstalling keeps settings and quarantined files unless
+you say otherwise. Silent install: `Clean-n-Adapt-Setup-<version>.exe /S`. Details: [docs/BUILD.md](docs/BUILD.md).
 
 ## Quick start
 

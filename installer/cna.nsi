@@ -1,13 +1,14 @@
 ; Clean-n-Adapt installer (NSIS 3.x, Modern UI 2).
 ;
-; Per-user install: no administrator rights, no UAC prompt. Settings, knowledge base and quarantined
-; files live in %LOCALAPPDATA%\cna and are NEVER removed silently by an upgrade or an uninstall.
+; All-users install: UAC places the application in Program Files and registers it in Apps & Features.
+; Settings, knowledge base and quarantined files live in %LOCALAPPDATA%\cna and are NEVER removed
+; silently by an upgrade or an uninstall.
 ;
 ; Build (done for you by CMake or scripts/build-mingw.sh):
 ;   makensis -DVERSION=0.1.0 -DCNA_EXE=<cna.exe> -DWIDGET_EXE=<cna-widget.exe> \
 ;            -DROOT=<source root> -DOUT_DIR=<output dir> installer/cna.nsi
 ; Silent install:   Clean-n-Adapt-Setup-<ver>.exe /S            (optionally /D=C:\Some\Folder, must be last)
-; Silent uninstall: "%LOCALAPPDATA%\Programs\Clean-n-Adapt\Uninstall.exe" /S
+; Silent uninstall: "C:\Program Files\cleanNadapt\Uninstall.exe" /S
 
 Unicode true
 !ifndef VERSION
@@ -34,9 +35,9 @@ Unicode true
 
 Name "${APP} ${VERSION}"
 OutFile "${OUT_DIR}/Clean-n-Adapt-Setup-${VERSION}.exe"
-InstallDir "$LOCALAPPDATA\Programs\${APP}"
-InstallDirRegKey HKCU "${UNINST_KEY}" "InstallLocation"
-RequestExecutionLevel user
+InstallDir "$PROGRAMFILES\cleanNadapt"
+InstallDirRegKey HKLM "${UNINST_KEY}" "InstallLocation"
+RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 BrandingText "${APP} ${VERSION}"
 ShowInstDetails nevershow
@@ -53,6 +54,7 @@ VIAddVersionKey "LegalCopyright"  "Copyright (C) ${PUBLISHER}"
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
+!include "x64.nsh"
 
 !define MUI_ICON   "${ROOT}\assets\cna.ico"
 !define MUI_UNICON "${ROOT}\assets\cna.ico"
@@ -77,6 +79,25 @@ VIAddVersionKey "LegalCopyright"  "Copyright (C) ${PUBLISHER}"
 
 !insertmacro MUI_LANGUAGE "English"
 
+Function .onInit
+  ; Keep the native executables and uninstall registration in the 64-bit view on 64-bit Windows.
+  ${If} ${RunningX64}
+    SetRegView 64
+  ${EndIf}
+  ReadRegStr $0 HKLM "${UNINST_KEY}" "InstallLocation"
+  ${If} $0 != ""
+    StrCpy $INSTDIR $0
+  ${ElseIf} ${RunningX64}
+    StrCpy $INSTDIR "$PROGRAMFILES64\cleanNadapt"
+  ${EndIf}
+FunctionEnd
+
+Function un.onInit
+  ${If} ${RunningX64}
+    SetRegView 64
+  ${EndIf}
+FunctionEnd
+
 ; ------------------------------------------------------------------------------------------------
 Section "${APP} (required)" SecMain
   SectionIn RO
@@ -96,21 +117,24 @@ Section "${APP} (required)" SecMain
   ; Start menu
   CreateDirectory "$SMPROGRAMS\${APP}"
   CreateShortcut "$SMPROGRAMS\${APP}\${APP}.lnk" "$INSTDIR\cna-widget.exe" "" "$INSTDIR\cna-widget.exe" 0
-  CreateShortcut "$SMPROGRAMS\${APP}\${APP} command line.lnk" "$SYSDIR\cmd.exe" "/k cna.exe help" "$INSTDIR\cna.exe" 0
+  CreateShortcut "$SMPROGRAMS\${APP}\${APP} command line.lnk" "$SYSDIR\cmd.exe" "/k $\"$INSTDIR\cna.exe$\" help" "$INSTDIR\cna.exe" 0
   CreateShortcut "$SMPROGRAMS\${APP}\Uninstall ${APP}.lnk" "$INSTDIR\Uninstall.exe"
 
   ; Apps & features entry
-  WriteRegStr   HKCU "${UNINST_KEY}" "DisplayName"     "${APP}"
-  WriteRegStr   HKCU "${UNINST_KEY}" "DisplayVersion"  "${VERSION}"
-  WriteRegStr   HKCU "${UNINST_KEY}" "Publisher"       "${PUBLISHER}"
-  WriteRegStr   HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
-  WriteRegStr   HKCU "${UNINST_KEY}" "DisplayIcon"     "$INSTDIR\cna-widget.exe"
-  WriteRegStr   HKCU "${UNINST_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
-  WriteRegStr   HKCU "${UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
-  WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1
-  WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
+  WriteRegStr   HKLM "${UNINST_KEY}" "DisplayName"     "${APP}"
+  WriteRegStr   HKLM "${UNINST_KEY}" "DisplayVersion"  "${VERSION}"
+  WriteRegStr   HKLM "${UNINST_KEY}" "Publisher"       "${PUBLISHER}"
+  WriteRegStr   HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr   HKLM "${UNINST_KEY}" "DisplayIcon"     "$INSTDIR\cna-widget.exe"
+  WriteRegStr   HKLM "${UNINST_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  WriteRegStr   HKLM "${UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
+  WriteRegDWORD HKLM "${UNINST_KEY}" "NoModify" 1
+  WriteRegDWORD HKLM "${UNINST_KEY}" "NoRepair" 1
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
-  WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" $0
+  WriteRegDWORD HKLM "${UNINST_KEY}" "EstimatedSize" $0
+
+  ; Remove registration from the older per-user installer after the machine-wide entry succeeds.
+  DeleteRegKey HKCU "${UNINST_KEY}"
 SectionEnd
 
 Section "Documentation" SecDocs
@@ -161,7 +185,7 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${APP}\Uninstall ${APP}.lnk"
   RMDir  "$SMPROGRAMS\${APP}"
   Delete "$DESKTOP\${APP}.lnk"
-  DeleteRegKey HKCU "${UNINST_KEY}"
+  DeleteRegKey HKLM "${UNINST_KEY}"
 
   ; User data is kept unless the user explicitly says otherwise (a silent uninstall always keeps it).
   IfFileExists "$LOCALAPPDATA\cna\*.*" 0 done

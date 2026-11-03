@@ -63,13 +63,14 @@ artifact. (Not run yet; it first runs when the project is pushed to GitHub.)
 
 > Captured under Wine (see [TESTING.md](TESTING.md)); real Windows draws the same pages with native fonts.
 
-* **Per-user, no administrator rights, no UAC prompt.** Default folder: `%LOCALAPPDATA%\Programs\Clean-n-Adapt`
-  (changeable on the folder page; an earlier install location is remembered for upgrades).
+* **System-wide, with a UAC prompt.** Default folder: `%ProgramFiles%\cleanNadapt` (changeable on the folder page;
+  an earlier install location is remembered for upgrades). On 64-bit Windows, the native Program Files and 64-bit
+  Apps & Features registry view are used.
 * Installs `cna.exe`, `cna-widget.exe`, `README.md`, `CHANGELOG.md` and, optionally, `docs\`.
 * Start Menu folder: *Clean-n-Adapt* (widget), *command line* (opens a prompt with `cna help`), *documentation*, *Uninstall*.
 * Optional components (off by default): **Desktop shortcut**, **Start with Windows** (writes the same
   `HKCU\...\Run\cna-widget` value the widget's tray menu toggles).
-* Registers in **Settings > Apps > Installed apps** with version, size and a quiet-uninstall command.
+* Registers in **Settings > Apps > Installed apps** for all users with version, size and a quiet-uninstall command.
 * **Upgrades in place:** install a newer setup over an older one. A running widget is asked to exit first
   (`cna-widget.exe --quit`) so its file can be replaced; settings and quarantine are untouched.
 * **Uninstall** removes the program, shortcuts, the `cna-auto` scheduled task, the Run value and the Apps entry.
@@ -81,7 +82,7 @@ Silent (unattended) use, e.g. for deployment scripts:
 ```text
 Clean-n-Adapt-Setup-<version>.exe /S                       install with defaults
 Clean-n-Adapt-Setup-<version>.exe /S /D=D:\Tools\cna       custom folder (/D must be the last argument)
-"%LOCALAPPDATA%\Programs\Clean-n-Adapt\Uninstall.exe" /S
+"%ProgramFiles%\cleanNadapt\Uninstall.exe" /S
 ```
 
 ## 4. Customising

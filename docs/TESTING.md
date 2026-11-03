@@ -129,7 +129,7 @@ the finish page, installing to a path with spaces or non-ASCII characters, and S
 | Non-ASCII user names / long paths | UTF-8 handling is implemented; not exercised |
 | The optional local-LLM path | Not implemented (stub only) |
 | MSVC build | Not built |
-| Installer on real Windows (UAC-free per-user install, Start Menu, Apps list, upgrade, uninstall prompt) | Only run under Wine |
+| Installer on real Windows (elevated Program Files install, Start Menu, Apps list, upgrade, uninstall prompt) | Only run under Wine |
 | GitHub Actions workflow | Written, never run |
 
 ## 6. Windows verification checklist (about 15 minutes)
