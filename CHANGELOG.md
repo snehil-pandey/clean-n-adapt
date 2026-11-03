@@ -6,21 +6,6 @@ All notable changes to Clean-n-Adapt are documented here. The format follows
 
 ## [Unreleased]
 
-## [3.0.3] - 2026-11-03
-
-### Added
-- `cna apps list`, `cna apps remove`, and `cna apps leftovers` for registered
-  application inventory, official-uninstaller-only removal, and classified
-  post-uninstall leftover audits.
-- Leftover audit rows now include a data category, local-model confidence,
-  evidence, and a keep/review/clean recommendation.
-
-### Fixed
-- App-data roots containing credentials, keys, wallets, or save data are
-  protected even when the root itself is named only after the application.
-- App-specific audits skip Windows 11 system/shared directories, cloud-only
-  placeholders, junctions, and still-installed application data.
-
 ## [3.0.2] - 2026-11-03
 
 ### Changed
@@ -31,6 +16,17 @@ All notable changes to Clean-n-Adapt are documented here. The format follows
 
 - Kept reports and review lists resizable without exposing a separate Windows
   dialog chrome, so they behave like expanded views of the widget.
+
+### Added
+- `cna apps list`, `cna apps remove`, and `cna apps leftovers` for registered
+  application inventory, official-uninstaller-only removal, and classified
+  post-uninstall leftover audits.
+
+### Fixed
+- App-data roots containing credentials, keys, wallets, or save data are
+  protected even when the root itself is named only after the application.
+- App-specific audits skip Windows 11 system/shared directories, cloud-only
+  placeholders, junctions, and still-installed application data.
 
 ## [3.0.1] - 2026-11-03
 
