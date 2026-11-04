@@ -12,7 +12,8 @@ static void usage() {
       "  cna scan   [--profile P]            preview what a clean would free\n"
       "  cna clean  [--profile P] --yes      delete caches (preview without --yes)\n"
       "      profiles: quick browser dev gaming windows apps custom full (comma-separated)\n"
-      "      --min-age DAYS  keep files newer than this     -v  list every folder\n\n"
+      "      --min-age DAYS  keep files newer than this     --refresh  bypass cached discovery\n"
+      "      -v  list every folder\n\n"
       "Finding things\n"
       "  cna dupes [paths...] [--min-size 1M] [--quarantine --yes] [--select PATH ...]\n"
       "  cna dupes --of FILE [paths...]      is there another copy of this file?\n"
@@ -42,6 +43,7 @@ static int run(const std::vector<std::string>& argv) {
   G.yes = a.has("yes");
   G.quiet = a.has("quiet");
   G.verbose = a.has("verbose");
+  G.refresh = a.has("refresh");
   if (a.has("state")) G.state = P(a.get("state"));
   for (auto& e : a.all("exclude")) G.excludes.push_back(P(e));
   size_t cap_mb = 125;

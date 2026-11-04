@@ -9,7 +9,7 @@ namespace cna {
 // ---- clean.cpp -------------------------------------------------------------
 enum Profile : unsigned { QUICK = 1, BROWSER = 2, DEV = 4, GAMING = 8, WINDOWS = 16, APPS = 32, CUSTOM = 64, FULL = 127 };
 struct Stats { uint64_t files = 0, bytes = 0, failed = 0, failed_bytes = 0; };
-struct RuleResult { std::string rule, note, path, warn; Stats st; };
+struct RuleResult { std::string rule, note, path, warn; Stats st; bool cached = false; };
 unsigned parse_profiles(const std::string& csv, std::string& bad);
 void add_custom_rule(const std::string& pattern);
 std::vector<RuleResult> run_clean(unsigned mask, double override_age, bool apply, std::vector<std::string>& skipped_admin,

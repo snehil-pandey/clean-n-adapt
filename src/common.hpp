@@ -33,7 +33,7 @@ inline std::string u8(const fs::path& p) {
 inline fs::path P(const std::string& s) { return fs::u8path(s); }
 
 struct Ctx {
-  bool json = false, yes = false, quiet = false, verbose = false;
+  bool json = false, yes = false, quiet = false, verbose = false, refresh = false;
   size_t mem_cap = 125u * 1024 * 1024;
   fs::path state;                 // explicit --state override
   std::vector<fs::path> excludes; // never touched by any command

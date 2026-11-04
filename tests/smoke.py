@@ -55,6 +55,10 @@ try:
     # ---- cleaning ------------------------------------------------------------
     r = js("scan", "--profile", "quick,browser")
     check("scan reports temp bytes (old files only)", r["total_bytes"] >= 7000 and r["total_bytes"] < 100000 + 8000 + 7000 + 1)
+    cached = js("scan", "--profile", "quick,browser")
+    check("unchanged preview reuses bounded discovery cache", cached["cache_hits"] > 0 and cached["rules_refreshed"] < len(cached["rules"]))
+    refreshed = js("scan", "--profile", "quick,browser", "--refresh")
+    check("--refresh bypasses cached discovery", refreshed["cache_hits"] == 0 and refreshed["rules_refreshed"] == len(refreshed["rules"]))
     run("clean", "--profile", "quick,browser")           # no --yes: must not delete
     check("clean without --yes deletes nothing", os.path.exists(LA + "/Temp/old.tmp"))
     run("clean", "--profile", "quick,browser", "--yes")

@@ -477,7 +477,8 @@ static void paint(HDC hdc) {
     txt(g, L"Results", fSmall, R(28, 444, 100, 20), T.sub);
     bool en = enabled(ID_DETAILS);
     RectF d = rect_of(ID_DETAILS);
-    txt(g, L"Details", fSmall, d, en ? (g_hot == ID_DETAILS ? T.accentH : T.accent) : mix(T.sub, T.card, 0.5f), StringAlignmentFar);
+    txt(g, g_reviewItems.empty() ? L"Details" : L"Review", fSmall, d,
+        en ? (g_hot == ID_DETAILS ? T.accentH : T.accent) : mix(T.sub, T.card, 0.5f), StringAlignmentFar);
     if (g_lines.empty()) {
       txt(g, L"Nothing to show yet.", fSmall, R(28, 468, 284, 18), T.sub);
     } else {
@@ -687,6 +688,26 @@ static void apply_popup_chrome(HWND h) {
   DwmSetWindowAttribute(h, 34, &border, sizeof border);
 }
 
+// Anchor expanded surfaces to the widget's monitor and keep the whole window
+// inside that monitor's work area. This works for taskbars, mixed-DPI displays
+// and a widget parked against either screen edge.
+static void place_popup_near_widget(HWND popup) {
+  RECT widget{}, popup_rect{};
+  GetWindowRect(g_hwnd, &widget);
+  GetWindowRect(popup, &popup_rect);
+  HMONITOR mon = MonitorFromRect(&widget, MONITOR_DEFAULTTONEAREST);
+  MONITORINFO mi{sizeof mi};
+  if (!GetMonitorInfoW(mon, &mi)) return;
+  const int width = popup_rect.right - popup_rect.left;
+  const int height = popup_rect.bottom - popup_rect.top;
+  const int gap = SI(12);
+  int x = widget.right + gap;
+  if (x + width > mi.rcWork.right) x = widget.left - gap - width;
+  if (x < mi.rcWork.left) x = max(mi.rcWork.left, min(widget.left, mi.rcWork.right - width));
+  int y = max(mi.rcWork.top, min(widget.top, mi.rcWork.bottom - height));
+  SetWindowPos(popup, HWND_TOP, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
 static void set_popup_font(HWND h, HFONT font = nullptr) {
   SendMessageW(h, WM_SETFONT, (WPARAM)(font ? font : g_uiFont), TRUE);
 }
@@ -816,9 +837,10 @@ static void show_report_window(const std::string& report) {
     SetForegroundWindow(g_reportWnd);
     return;
   }
-  g_reportWnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"CnaReportWnd", L"Clean-n-Adapt | Report",
+  g_reportWnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"CnaReportWnd", L"Clean-n-Adapt | Diagnostic output",
       WS_POPUP | WS_THICKFRAME | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(880), SI(620), g_hwnd, nullptr, g_inst, nullptr);
-  if (!g_reportWnd) set_status(L"Could not open the report window", true);
+  if (!g_reportWnd) set_status(L"Could not open the diagnostic window", true);
+  else place_popup_near_widget(g_reportWnd);
 }
 
 static void prompt_resize(HWND h) {
@@ -876,6 +898,7 @@ static void show_prompt(const std::wstring& title, const std::wstring& body, con
   g_promptWnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"CnaPromptWnd", L"Clean-n-Adapt | Confirm",
       WS_POPUP | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(480), SI(250), g_hwnd, nullptr, g_inst, nullptr);
   if (!g_promptWnd) set_status(L"Could not open the confirmation window", true);
+  else place_popup_near_widget(g_promptWnd);
 }
 
 static std::wstring lower_w(std::wstring s) {
@@ -1209,7 +1232,7 @@ static LRESULT CALLBACK ReportWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_ERASEBKGND: return 1;
     case WM_PAINT:
-      paint_popup_header(h, L"Report", L"A complete local record of the most recent command. No files are created.");
+      paint_popup_header(h, L"Diagnostic output", L"Copyable command output. Use Review for the interactive results surface.");
       return 0;
     case WM_NCHITTEST: return popup_hit_test(h, l, true);
     case WM_SIZE: report_resize(h); return 0;
@@ -1233,6 +1256,7 @@ static void show_review_window() {
   g_reviewWnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"CnaReviewWnd", L"Clean-n-Adapt review",
       WS_POPUP | WS_THICKFRAME | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(1100), SI(680), g_hwnd, nullptr, g_inst, nullptr);
   if (!g_reviewWnd) set_status(L"Could not open the review window", true);
+  else place_popup_near_widget(g_reviewWnd);
 }
 
 static std::wstring prof_arg() { return kProfArgs[g_profile]; }
@@ -1318,8 +1342,13 @@ static void on_done(JobData* j) {
   } else if (kind == K_DETAILS) {
     if (!j->started || o.empty()) fail(L"Report");
     else {
-      show_report_window(o);
-      set_status(L"Report opened in Clean-n-Adapt");
+      if (!g_reviewItems.empty()) {
+        show_review_window();
+        set_status(L"Interactive review opened in Clean-n-Adapt");
+      } else {
+        show_report_window(o);
+        set_status(L"Diagnostic output opened in Clean-n-Adapt");
+      }
     }
   } else if (kind == K_APP_REMOVE) {
     if (!j->started || j->code != 0) fail(L"Official uninstaller");
@@ -1408,8 +1437,10 @@ static void on_done(JobData* j) {
       uint64_t rule_failed = numat(o, kpos(o, "failed", p));
       size_t paths = kpos(o, "paths", p);
       std::string path = nth_str(o, paths, 0);
+      bool cached = boolat(o, kpos(o, "cached", p));
       bool eligible = rule_bytes > 0 && rule_failed == 0 && !path.empty();
-      std::wstring evidence = eligible ? L"Established cleanup rule" : rule_failed ? L"Some files are locked" : L"No reclaimable data";
+      std::wstring evidence = eligible ? (cached ? L"Cached discovery; revalidated before cleanup" : L"Established cleanup rule")
+          : rule_failed ? L"Some files are locked" : L"No reclaimable data";
       std::wstring reason = W(note);
       if (!path.empty()) reason += (reason.empty() ? L"" : L"\n") + W(path);
       if (rule_files) reason += L"\n" + std::to_wstring(rule_files) + L" file(s) in preview";
@@ -1419,10 +1450,13 @@ static void on_done(JobData* j) {
     size_t sk = kpos(o, "skipped_needs_admin");
     size_t nadmin = 0;
     if (sk != std::string::npos) { size_t e = o.find(']', sk); if (e != std::string::npos && e > sk + 1) nadmin = count_of(o.substr(sk, e - sk), "\",\"") + 1; }
+    uint64_t cache_hits = numat(o, kpos(o, "cache_hits"));
     if (bytes > 0 && !g_reviewItems.empty()) {
       g_reviewApplyKind = K_QCLEAN;
       g_pending = {true, L"Review cleanup", L"", K_REVIEW};
-      set_status(nadmin ? std::to_wstring(nadmin) + L" rule(s) need administrator and were skipped" : L"Review individual cleanup rules before cleaning");
+      set_status(nadmin ? std::to_wstring(nadmin) + L" rule(s) need administrator and were skipped"
+          : cache_hits ? L"Reused " + std::to_wstring(cache_hits) + L" unchanged discovery record(s); cleanup will rescan selected rules"
+          : L"Review individual cleanup rules before cleaning");
     } else { g_pending = Pending(); set_status(L"Nothing to clean here"); }
   } else if (kind == K_CLEAN || kind == K_QUICK) {
     uint64_t bytes = numat(o, kpos(o, "total_bytes")), failed = numat(o, kpos(o, "failed"));
@@ -1666,7 +1700,10 @@ static void do_click(int id) {
     case ID_SMART: if (!g_busy) start_job(K_SMART, L"recommend --json", L"Analysing folders\u2026"); break;
     case ID_DEBLOAT: if (!g_busy) start_job(K_DEBLOAT, L"debloat scan --json", L"Checking Windows\u2026"); break;
     case ID_APPS: if (!g_busy) start_job(K_APPS, L"apps list --json", L"Reading installed apps\u2026"); break;
-    case ID_DETAILS: if (!g_busy && !g_reportArgs.empty()) start_job(K_DETAILS, g_reportArgs, L"Preparing report\u2026"); break;
+    case ID_DETAILS:
+      if (!g_busy && !g_reviewItems.empty()) show_review_window();
+      else if (!g_busy && !g_reportArgs.empty()) start_job(K_DETAILS, g_reportArgs, L"Preparing diagnostic output\u2026");
+      break;
     case ID_AUTO:
       if (!g_busy) start_job(K_AUTOSET, g_autoOn ? L"auto remove" : L"auto install --every-hours 6", g_autoOn ? L"Removing scheduled task\u2026" : L"Creating scheduled task\u2026");
       break;

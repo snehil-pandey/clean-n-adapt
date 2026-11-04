@@ -1,5 +1,7 @@
 #include "cmds.hpp"
 
+#include <fstream>
+
 namespace cna {
 
 struct RuleDef {
@@ -151,6 +153,68 @@ static std::vector<fs::path> expand_pattern(const std::string& pat) {
 
 struct Target { std::string rule, note; fs::path root; double min_age; };
 
+// Discovery cache: this only accelerates previews.  Every --yes operation walks
+// the target again, then applies the normal protected-path, link and lock checks.
+// Entries are deliberately short-lived because a directory timestamp alone is
+// not proof that every descendant is unchanged.
+struct ScanCacheEntry {
+  std::string rule, root;
+  int64_t stamp = 0;
+  double age = 0;
+  Stats st;
+  std::time_t saved = 0;
+};
+
+static fs::path scan_cache_path() { return state_dir() / "scan-cache.tsv"; }
+
+static int64_t target_stamp(const fs::path& p) {
+  std::error_code ec;
+  auto t = fs::last_write_time(p, ec);
+  return ec ? 0 : (int64_t)t.time_since_epoch().count();
+}
+
+static std::vector<ScanCacheEntry> load_scan_cache() {
+  std::vector<ScanCacheEntry> out;
+  std::ifstream f(scan_cache_path());
+  std::string line;
+  while (std::getline(f, line)) {
+    auto v = split(line, '\t');
+    if (v.size() != 9) continue;
+    try {
+      ScanCacheEntry e;
+      e.rule = unesc_tsv(v[0]); e.root = unesc_tsv(v[1]); e.stamp = std::stoll(v[2]); e.age = std::stod(v[3]);
+      e.st.files = std::stoull(v[4]); e.st.bytes = std::stoull(v[5]); e.st.failed = std::stoull(v[6]);
+      e.st.failed_bytes = std::stoull(v[7]); e.saved = (std::time_t)std::stoll(v[8]);
+      out.push_back(std::move(e));
+    } catch (...) { /* Ignore a corrupt row; the target will be refreshed. */ }
+  }
+  return out;
+}
+
+static void save_scan_cache(const std::vector<ScanCacheEntry>& entries) {
+  fs::path dst = scan_cache_path(), tmp = dst; tmp += ".tmp";
+  std::ofstream f(tmp, std::ios::trunc);
+  if (!f) return;
+  for (const auto& e : entries)
+    f << esc_tsv(e.rule) << '\t' << esc_tsv(e.root) << '\t' << e.stamp << '\t' << e.age << '\t'
+      << e.st.files << '\t' << e.st.bytes << '\t' << e.st.failed << '\t' << e.st.failed_bytes << '\t' << e.saved << '\n';
+  f.close();
+  std::error_code ec;
+  fs::rename(tmp, dst, ec);
+  if (ec) { fs::remove(dst, ec); ec.clear(); fs::rename(tmp, dst, ec); }
+}
+
+static const ScanCacheEntry* cache_hit(const std::vector<ScanCacheEntry>& entries, const Target& t, double age) {
+  const std::time_t now = std::time(nullptr);
+  const std::string root = norm_key(t.root);
+  const int64_t stamp = target_stamp(t.root);
+  for (const auto& e : entries)
+    if (e.rule == t.rule && e.root == root && e.stamp == stamp && e.age == age && !e.st.failed &&
+        now >= e.saved && now - e.saved <= 300)
+      return &e;
+  return nullptr;
+}
+
 static std::vector<Target> resolve_targets(unsigned mask, std::vector<std::string>& skipped) {
   bool admin = plat::is_elevated();
   auto rules = builtin_rules();
@@ -250,12 +314,30 @@ static Stats process_target(const Target& t, double override_age, bool apply, st
 std::vector<RuleResult> run_clean(unsigned mask, double override_age, bool apply, std::vector<std::string>& skipped,
                                   const std::set<std::string>& only_rules) {
   std::vector<RuleResult> out;
+  const bool use_cache = !apply && !G.refresh;
+  std::vector<ScanCacheEntry> cache = use_cache ? load_scan_cache() : std::vector<ScanCacheEntry>{};
+  std::vector<ScanCacheEntry> updated = cache;
   for (auto& t : resolve_targets(mask, skipped)) {
     if (!only_rules.empty() && !only_rules.count(t.rule)) continue;
     RuleResult rr;
     rr.rule = t.rule; rr.note = t.note; rr.path = u8(t.root);
-    rr.st = process_target(t, override_age, apply, rr.warn);
+    const double age = override_age >= 0 ? override_age : t.min_age;
+    if (use_cache) {
+      if (const auto* hit = cache_hit(cache, t, age)) { rr.st = hit->st; rr.cached = true; }
+      else rr.st = process_target(t, override_age, false, rr.warn);
+    } else rr.st = process_target(t, override_age, apply, rr.warn);
+    if (!apply && !rr.cached && !rr.st.failed) {
+      ScanCacheEntry e{t.rule, norm_key(t.root), target_stamp(t.root), age, rr.st, std::time(nullptr)};
+      updated.erase(std::remove_if(updated.begin(), updated.end(), [&](const ScanCacheEntry& old) {
+        return old.rule == e.rule && old.root == e.root && old.age == e.age;
+      }), updated.end());
+      updated.push_back(std::move(e));
+    }
     out.push_back(std::move(rr));
+  }
+  if (!apply) {
+    if (updated.size() > 4096) updated.erase(updated.begin(), updated.begin() + (long)(updated.size() - 4096));
+    save_scan_cache(updated);
   }
   return out;
 }
@@ -285,14 +367,19 @@ int cmd_clean(const Args& a, bool force_dry) {
     paths[r.rule].push_back(r.path);
   }
   Stats tot;
+  uint64_t cache_hits = 0;
   for (auto& k : order) { tot.files += agg[k].st.files; tot.bytes += agg[k].st.bytes; tot.failed += agg[k].st.failed; }
+  for (const auto& r : res) if (r.cached) ++cache_hits;
 
   if (G.json) {
-    std::printf("{\"mode\":\"%s\",\"total_bytes\":%llu,\"total_files\":%llu,\"failed\":%llu,\"rules\":[", apply ? "clean" : "dry-run",
-                (unsigned long long)tot.bytes, (unsigned long long)tot.files, (unsigned long long)tot.failed);
+    std::printf("{\"mode\":\"%s\",\"cache_hits\":%llu,\"rules_refreshed\":%llu,\"total_bytes\":%llu,\"total_files\":%llu,\"failed\":%llu,\"rules\":[", apply ? "clean" : "dry-run",
+                (unsigned long long)cache_hits, (unsigned long long)(res.size() - cache_hits), (unsigned long long)tot.bytes,
+                (unsigned long long)tot.files, (unsigned long long)tot.failed);
     for (size_t i = 0; i < order.size(); ++i) {
       auto& x = agg[order[i]];
-      std::printf("%s{\"rule\":\"%s\",\"note\":\"%s\",\"bytes\":%llu,\"files\":%llu,\"failed\":%llu,\"paths\":[", i ? "," : "", x.rule.c_str(), jesc(x.note).c_str(),
+      bool cached = true;
+      for (const auto& r : res) if (r.rule == x.rule && !r.cached) { cached = false; break; }
+      std::printf("%s{\"rule\":\"%s\",\"note\":\"%s\",\"cached\":%s,\"bytes\":%llu,\"files\":%llu,\"failed\":%llu,\"paths\":[", i ? "," : "", x.rule.c_str(), jesc(x.note).c_str(), cached ? "true" : "false",
                   (unsigned long long)x.st.bytes, (unsigned long long)x.st.files, (unsigned long long)x.st.failed);
       for (size_t j = 0; j < paths[order[i]].size(); ++j) std::printf("%s\"%s\"", j ? "," : "", jesc(paths[order[i]][j]).c_str());
       std::printf("]}");
