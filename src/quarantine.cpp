@@ -71,11 +71,22 @@ std::string q_move(const fs::path& src, const std::string& reason, uint64_t byte
   localtime_r(&t, &tmv);
 #endif
   std::strftime(idb, sizeof idb, "%Y%m%d-%H%M%S", &tmv);
-  std::string id = std::string(idb) + "-" + std::to_string(++seq);
-  fs::path dir = qdir() / id;
   std::error_code ec;
-  fs::create_directories(dir, ec);
-  if (ec) { err = "cannot create quarantine dir: " + ec.message(); return ""; }
+  std::string id;
+  fs::path dir;
+  bool reserved = false;
+  // A CLI action normally runs in a separate process. A process-local counter
+  // alone therefore collides when two items are quarantined in the same second.
+  // Reserve an unused directory before moving data so each index entry owns it.
+  for (int attempt = 0; attempt < 1000; ++attempt) {
+    id = std::string(idb) + "-" + std::to_string(++seq);
+    dir = qdir() / id;
+    if (fs::exists(dir, ec)) { ec.clear(); continue; }
+    bool made = fs::create_directories(dir, ec);
+    if (ec) { err = "cannot create quarantine dir: " + ec.message(); return ""; }
+    if (made) { reserved = true; break; }
+  }
+  if (!reserved) { err = "could not reserve a unique quarantine entry"; return ""; }
   fs::path dst = dir / src.filename();
   if (!move_any(src, dst, err)) { fs::remove(dir, ec); return ""; }
   auto v = q_load();

@@ -94,6 +94,7 @@ try:
 
     held = run("quarantine", "list", "--json")["entries"]
     restore_ids = [entry["id"] for entry in held if entry["original"] in (b, old_cache)]
+    assert len(restore_ids) == 2 and len(set(restore_ids)) == 2, held
     restored = run("quarantine", "restore", "--id", restore_ids[0], "--id", restore_ids[1], "--json")
     assert restored["restored"] == 2 and restored["failed"] == 0, restored
     assert os.path.exists(b) and os.path.exists(old_cache), "multi-restore did not recover the selected entries"
