@@ -22,6 +22,7 @@ ROAMING = os.path.join(ROOT, "Roaming")
 PROGRAMDATA = os.path.join(ROOT, "ProgramData")
 PROGRAMFILES = os.path.join(ROOT, "ProgramFiles")
 PROGRAMFILES86 = os.path.join(ROOT, "ProgramFilesX86")
+TEMP = os.path.join(LOCAL, "Temp")
 STATE = os.path.join(ROOT, "state")
 
 ENV = os.environ.copy()
@@ -31,6 +32,7 @@ ENV.update({
     "PROGRAMDATA": PROGRAMDATA,
     "PROGRAMFILES": PROGRAMFILES,
     "PROGRAMFILES(X86)": PROGRAMFILES86,
+    "TEMP": TEMP,
     "USERPROFILE": os.path.join(ROOT, "User"),
 })
 
@@ -81,6 +83,20 @@ try:
     result = run("dupes", dupes, "--min-size", "1M", "--select", b, "--quarantine", "--yes", "--json")
     assert result["quarantined_files"] == 1, result
     assert os.path.exists(a) and not os.path.exists(b) and os.path.exists(c), "duplicate selection moved the wrong files"
+
+    old_temp = os.path.join(TEMP, "selected.tmp")
+    write(old_temp, 1024 * 1024, old=True)
+    preview = run("clean", "--profile", "quick", "--rule", "user-temp", "--json")
+    assert len(preview["rules"]) == 1 and preview["rules"][0]["rule"] == "user-temp", preview
+    assert preview["rules"][0]["bytes"] >= 1024 * 1024, preview
+    run("clean", "--profile", "quick", "--rule", "user-temp", "--yes", "--json")
+    assert not os.path.exists(old_temp), "rule-scoped cleanup did not remove the selected rule target"
+
+    held = run("quarantine", "list", "--json")["entries"]
+    restore_ids = [entry["id"] for entry in held if entry["original"] in (b, old_cache)]
+    restored = run("quarantine", "restore", "--id", restore_ids[0], "--id", restore_ids[1], "--json")
+    assert restored["restored"] == 2 and restored["failed"] == 0, restored
+    assert os.path.exists(b) and os.path.exists(old_cache), "multi-restore did not recover the selected entries"
 
     print("PASS: conservative remnants and selective quarantine")
 finally:

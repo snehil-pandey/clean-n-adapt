@@ -247,9 +247,11 @@ static Stats process_target(const Target& t, double override_age, bool apply, st
   return st;
 }
 
-std::vector<RuleResult> run_clean(unsigned mask, double override_age, bool apply, std::vector<std::string>& skipped) {
+std::vector<RuleResult> run_clean(unsigned mask, double override_age, bool apply, std::vector<std::string>& skipped,
+                                  const std::set<std::string>& only_rules) {
   std::vector<RuleResult> out;
   for (auto& t : resolve_targets(mask, skipped)) {
+    if (!only_rules.empty() && !only_rules.count(t.rule)) continue;
     RuleResult rr;
     rr.rule = t.rule; rr.note = t.note; rr.path = u8(t.root);
     rr.st = process_target(t, override_age, apply, rr.warn);
@@ -268,7 +270,9 @@ int cmd_clean(const Args& a, bool force_dry) {
   double age = a.has("min-age") ? std::atof(a.get("min-age").c_str()) : -1;
   bool apply = !force_dry && !a.has("dry-run") && G.yes;
   std::vector<std::string> skipped;
-  auto res = run_clean(mask, age, apply, skipped);
+  auto selected_rules = a.all("rule");
+  std::set<std::string> only_rules(selected_rules.begin(), selected_rules.end());
+  auto res = run_clean(mask, age, apply, skipped, only_rules);
 
   // aggregate by rule id, keeping first-seen order
   std::vector<std::string> order;
@@ -288,7 +292,7 @@ int cmd_clean(const Args& a, bool force_dry) {
                 (unsigned long long)tot.bytes, (unsigned long long)tot.files, (unsigned long long)tot.failed);
     for (size_t i = 0; i < order.size(); ++i) {
       auto& x = agg[order[i]];
-      std::printf("%s{\"rule\":\"%s\",\"bytes\":%llu,\"files\":%llu,\"failed\":%llu,\"paths\":[", i ? "," : "", x.rule.c_str(),
+      std::printf("%s{\"rule\":\"%s\",\"note\":\"%s\",\"bytes\":%llu,\"files\":%llu,\"failed\":%llu,\"paths\":[", i ? "," : "", x.rule.c_str(), jesc(x.note).c_str(),
                   (unsigned long long)x.st.bytes, (unsigned long long)x.st.files, (unsigned long long)x.st.failed);
       for (size_t j = 0; j < paths[order[i]].size(); ++j) std::printf("%s\"%s\"", j ? "," : "", jesc(paths[order[i]][j]).c_str());
       std::printf("]}");

@@ -318,7 +318,7 @@ TreeInfo tree_info(const fs::path& root, uint64_t max_entries, bool collect_ext)
 // ---- args ----------------------------------------------------------------
 Args parse_args(const std::vector<std::string>& v, size_t from) {
   static const std::set<std::string> valued = {
-      "profile", "min-age", "min-size", "max-size", "mem-cap", "apps-file", "min-score", "every-hours",
+      "profile", "min-age", "min-size", "max-size", "mem-cap", "apps-file", "min-score", "every-hours", "rule",
       "older-than", "config", "state", "limit", "of", "app", "depth", "root", "exclude", "select", "reason", "label", "preset", "only", "id", "packages-file"};
   Args a;
   for (size_t i = from; i < v.size(); ++i) {

@@ -126,29 +126,30 @@ int cmd_quarantine(const Args& a) {
     return 0;
   }
   if (sub == "restore") {
-    if (a.pos.size() < 2) { std::fprintf(stderr, "usage: cna quarantine restore <id>\n"); return 64; }
-    for (auto it = v.begin(); it != v.end(); ++it) {
-      if (it->id != a.pos[1]) continue;
+    std::vector<std::string> ids = a.all("id");
+    if (a.pos.size() >= 2) ids.push_back(a.pos[1]);
+    if (ids.empty()) { std::fprintf(stderr, "usage: cna quarantine restore <id> | --id ID [--id ID ...]\n"); return 64; }
+    int restored = 0, failed = 0;
+    for (auto& id : ids) {
+      auto it = std::find_if(v.begin(), v.end(), [&](const QEntry& e) { return e.id == id; });
+      if (it == v.end()) { std::fprintf(stderr, "no such quarantine id: %s\n", id.c_str()); ++failed; continue; }
       fs::path orig = P(it->orig), src = qdir() / it->id / orig.filename();
       std::error_code ec;
-      if (fs::exists(orig, ec)) { std::fprintf(stderr, "refusing: %s already exists\n", it->orig.c_str()); return 1; }
+      if (fs::exists(orig, ec)) { std::fprintf(stderr, "refusing: %s already exists\n", it->orig.c_str()); ++failed; continue; }
       fs::create_directories(orig.parent_path(), ec);
       std::string err;
-      if (!move_any(src, orig, err)) { std::fprintf(stderr, "restore failed: %s\n", err.c_str()); return 1; }
-      fs::remove_all(qdir() / it->id, ec);
+      if (!move_any(src, orig, err)) { std::fprintf(stderr, "restore failed: %s\n", err.c_str()); ++failed; continue; }
       std::string why = it->reason;
-      v.erase(it);
-      q_save(v);
-      std::printf("Restored %s\n", orig.string().c_str());
-      if (why.rfind("advisor:", 0) == 0 || why.rfind("remnant", 0) == 0) { // you wanted it back: remember that
-        std::string err;
+      fs::remove_all(qdir() / it->id, ec);
+      v.erase(it); q_save(v); ++restored;
+      if (!G.json) std::printf("Restored %s\n", orig.string().c_str());
+      if (why.rfind("advisor:", 0) == 0 || why.rfind("remnant", 0) == 0) {
         Descriptor d = describe_path(orig, nullptr, 60000);
-        if (model_feedback(d, u8(orig), C_CAUTION, err)) std::printf("Noted: the model will treat folders like this one more carefully.\n");
+        if (model_feedback(d, u8(orig), C_CAUTION, err) && !G.json) std::printf("Noted: the model will treat folders like this one more carefully.\n");
       }
-      return 0;
     }
-    std::fprintf(stderr, "no such quarantine id\n");
-    return 1;
+    if (G.json) std::printf("{\"restored\":%d,\"failed\":%d}\n", restored, failed);
+    return failed ? 2 : restored ? 0 : 1;
   }
   if (sub == "purge") {
     if (!G.yes) { std::printf("Purge permanently deletes quarantined items. Re-run with --yes (use --older-than DAYS or --all).\n"); return 0; }

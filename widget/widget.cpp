@@ -35,7 +35,7 @@ using namespace Gdiplus;
 enum { T_ANIM = 1, T_CONFIRM = 2, T_DISK = 3 };
 enum { ID_NONE = 0, ID_CLOSE, ID_PIN, ID_PROF = 10, ID_SCAN = 20, ID_ACTION, ID_DUPES = 30, ID_LEFT, ID_QUAR, ID_SMART, ID_DEBLOAT, ID_APPS, ID_DETAILS = 40, ID_AUTO, ID_RESULT_ROW = 60 };
 enum { CM_SHOW = 1, CM_QUICK, CM_AUTORUN, CM_PIN, CM_STARTUP, CM_UNDO_DEBLOAT, CM_REMOVE_APPS, CM_EXIT };
-enum Kind { K_NONE, K_SCAN, K_CLEAN, K_QUICK, K_DUPES, K_LEFT, K_QUAR, K_QDUPES, K_QLEFT, K_AUTOSTAT, K_AUTOSET, K_AUTORUN, K_DETAILS, K_SMART, K_QSMART, K_DEBLOAT, K_DEBLOAT_APPLY, K_DEBLOAT_UNDO, K_DEBLOAT_APPS, K_APPS, K_APP_REMOVE, K_APP_LEFT, K_QAPPS, K_REVIEW };
+enum Kind { K_NONE, K_SCAN, K_CLEAN, K_QUICK, K_DUPES, K_LEFT, K_QUAR, K_QDUPES, K_QLEFT, K_AUTOSTAT, K_AUTOSET, K_AUTORUN, K_DETAILS, K_SMART, K_QSMART, K_DEBLOAT, K_DEBLOAT_APPLY, K_DEBLOAT_UNDO, K_DEBLOAT_APPS, K_APPS, K_APP_REMOVE, K_APP_LEFT, K_QAPPS, K_QCLEAN, K_QDEBLOAT, K_QRESTORE, K_RESTORE, K_REVIEW };
 
 static const wchar_t* kClass = L"CnaWidgetWnd";
 static const wchar_t* kRunKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -57,18 +57,21 @@ static ULONGLONG g_t0 = 0;
 
 struct Pending { bool on = false; std::wstring label, args; int kind = K_NONE; };
 static Pending g_pending;
-struct ProfileResult {
-  bool valid = false;
-  Pending pending;
-  std::wstring status, heroBig, heroCap, heroMeta, reportArgs;
-  std::vector<std::pair<std::wstring, std::wstring>> lines;
-};
-static ProfileResult g_profileResults[5];
 struct ReviewItem {
   std::wstring path, category, confidence, reason, command;
   uint64_t bytes = 0;
   bool eligible = false, selected = false;
 };
+struct ProfileResult {
+  bool valid = false;
+  Pending pending;
+  std::wstring status, heroBig, heroCap, heroMeta, reportArgs;
+  std::vector<std::pair<std::wstring, std::wstring>> lines;
+  std::vector<ReviewItem> reviewItems;
+  int reviewApplyKind = K_NONE;
+  std::wstring reviewBaseArgs;
+};
+static ProfileResult g_profileResults[5];
 static std::vector<ReviewItem> g_reviewItems;
 static int g_reviewApplyKind = K_NONE;
 static std::wstring g_reviewBaseArgs;
@@ -673,6 +676,9 @@ static void start_job(int kind, const std::wstring& args, const std::wstring& bu
 }
 
 static void apply_popup_chrome(HWND h) {
+  LONG_PTR style = GetWindowLongPtrW(h, GWL_EXSTYLE);
+  SetWindowLongPtrW(h, GWL_EXSTYLE, style | WS_EX_LAYERED);
+  SetLayeredWindowAttributes(h, 0, 248, LWA_ALPHA);
   BOOL dark = T.dark;
   DwmSetWindowAttribute(h, 20, &dark, sizeof dark);
   int corner = 2;
@@ -971,6 +977,9 @@ static void stage_review_selection() {
   else if (g_reviewApplyKind == K_QSMART) args = L"recommend --apply --yes --json";
   else if (g_reviewApplyKind == K_QDUPES) args = L"dupes --min-size 10M --quarantine --yes --json";
   else if (g_reviewApplyKind == K_QAPPS) args = L"apps remove --yes";
+  else if (g_reviewApplyKind == K_QCLEAN) args = g_reviewBaseArgs + L" --yes --json";
+  else if (g_reviewApplyKind == K_QDEBLOAT) args = L"debloat apply --yes --json";
+  else if (g_reviewApplyKind == K_QRESTORE) args = L"quarantine restore";
   else return;
   uint64_t bytes = 0;
   int n = 0;
@@ -982,6 +991,16 @@ static void stage_review_selection() {
       if (n) { show_prompt(L"Choose one app", L"Official uninstallers can be interactive. Select one app, complete its own uninstaller, then review its leftovers.", L"Close"); return; }
       args += L" --app \"" + g_reviewItems[i].command + L"\"";
       app_label = g_reviewItems[i].path;
+    } else if (g_reviewApplyKind == K_QCLEAN || g_reviewApplyKind == K_QDEBLOAT || g_reviewApplyKind == K_QRESTORE) {
+      if (g_reviewApplyKind == K_QRESTORE) {
+        args += L" --id \"";
+        args += g_reviewItems[i].command;
+        args += L"\"";
+      } else {
+      args += g_reviewApplyKind == K_QCLEAN ? L" --rule \"" : L" --id \"";
+      args += g_reviewItems[i].command;
+      args += L"\"";
+      }
     } else args += L" --select \"" + g_reviewItems[i].path + L"\"";
     bytes += g_reviewItems[i].bytes; ++n;
     if (n <= 5) {
@@ -993,6 +1012,9 @@ static void stage_review_selection() {
   if (!n) { show_prompt(L"Nothing selected", g_reviewApplyKind == K_QAPPS ? L"Only apps with a registered official uninstaller can be selected." : L"Choose at least one eligible item before staging a quarantine. Protected items cannot be selected.", L"Close"); return; }
   g_pending = g_reviewApplyKind == K_QAPPS
       ? Pending{true, L"Uninstall " + app_label, args, K_APP_REMOVE}
+      : g_reviewApplyKind == K_QCLEAN ? Pending{true, L"Clean " + std::to_wstring(n) + L" rule(s)", args, K_CLEAN}
+      : g_reviewApplyKind == K_QDEBLOAT ? Pending{true, L"Apply " + std::to_wstring(n) + L" tweak(s)", args, K_DEBLOAT_APPLY}
+      : g_reviewApplyKind == K_QRESTORE ? Pending{true, L"Restore " + std::to_wstring(n) + L" item(s)", args, K_RESTORE}
       : Pending{true, L"Quarantine " + human(bytes), args, g_reviewApplyKind};
   DestroyWindow(g_reviewWnd);
   if (g_reviewApplyKind == K_QAPPS) {
@@ -1000,10 +1022,17 @@ static void stage_review_selection() {
         L"\n\nNo install folder or app data will be deleted by Clean-n-Adapt. You can audit leftovers after it finishes.",
         L"Launch uninstaller", K_APP_REMOVE, args, L"Running official uninstaller…");
   } else {
-    std::wstring body = std::to_wstring(n) + L" selected item(s), " + human(bytes) +
-        L", will be moved to quarantine. Nothing is permanently deleted.\n\n" + listed;
+    std::wstring action = g_reviewApplyKind == K_QCLEAN ? L"Clean selected rules" : g_reviewApplyKind == K_QDEBLOAT ? L"Apply selected tweaks" : g_reviewApplyKind == K_QRESTORE ? L"Restore selected items" : L"Move to quarantine";
+    std::wstring consequence = g_reviewApplyKind == K_QCLEAN
+        ? L"will be deleted under the established cleanup rules. Locked files are skipped.\n\n"
+        : g_reviewApplyKind == K_QDEBLOAT ? L"will be applied. Only reversible, safe-tier changes are selectable.\n\n"
+        : g_reviewApplyKind == K_QRESTORE ? L"will be restored to their original paths. A conflicting existing path is skipped.\n\n"
+        : L"will be moved to quarantine. Nothing is permanently deleted.\n\n";
+    std::wstring body = std::to_wstring(n) + L" selected item(s), " + human(bytes) + L", " + consequence + listed;
     if (n > 5) body += L"\n… and " + std::to_wstring(n - 5) + L" more selected item(s).";
-    show_prompt(L"Confirm quarantine", body, L"Move to quarantine", g_reviewApplyKind, args, L"Moving selected items…");
+    int kind = g_reviewApplyKind == K_QCLEAN ? K_CLEAN : g_reviewApplyKind == K_QDEBLOAT ? K_DEBLOAT_APPLY : g_reviewApplyKind == K_QRESTORE ? K_RESTORE : g_reviewApplyKind;
+    show_prompt(L"Confirm selected operation", body, action, kind, args,
+        g_reviewApplyKind == K_QCLEAN ? L"Cleaning selected rules…" : g_reviewApplyKind == K_QDEBLOAT ? L"Applying selected tweaks…" : g_reviewApplyKind == K_QRESTORE ? L"Restoring selected items…" : L"Moving selected items…");
   }
   set_status(L"Waiting for confirmation of the selected items");
   invalidate();
@@ -1017,6 +1046,9 @@ static void show_review_item_detail(size_t index) {
       L"\n\nRecoverable size\n" + (row.bytes ? human(row.bytes) : L"Not measured");
   if (!row.eligible) body += L"\n\nThis item cannot be selected for the current operation.";
   else if (g_reviewApplyKind == K_QAPPS) body += L"\n\nThe registered official uninstaller is the only removal method Clean-n-Adapt will launch.";
+  else if (g_reviewApplyKind == K_QCLEAN) body += L"\n\nThe proposed operation uses the established cleanup rule and is not a quarantine move.";
+  else if (g_reviewApplyKind == K_QDEBLOAT) body += L"\n\nThe proposed Windows change is marked reversible by the engine.";
+  else if (g_reviewApplyKind == K_QRESTORE) body += L"\n\nThe proposed operation restores this item to its original location if no conflict exists.";
   else body += L"\n\nThe proposed operation is quarantine, so the item can be restored later.";
   show_prompt(L"Item details", body, L"Close");
 }
@@ -1045,7 +1077,9 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       CreateWindowW(L"BUTTON", L"Select shown", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_ALL, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Clear all", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_NONE, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Inspect", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_INSPECT, g_inst, nullptr);
-      CreateWindowW(L"BUTTON", g_reviewApplyKind == K_QAPPS ? L"Start uninstall" : L"Stage quarantine", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_STAGE, g_inst, nullptr);
+      const wchar_t* stage = g_reviewApplyKind == K_QAPPS ? L"Start uninstall" : g_reviewApplyKind == K_QCLEAN ? L"Clean selected" :
+          g_reviewApplyKind == K_QDEBLOAT ? L"Apply selected" : g_reviewApplyKind == K_QRESTORE ? L"Restore selected" : L"Stage quarantine";
+      CreateWindowW(L"BUTTON", stage, WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_STAGE, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_CLOSE, g_inst, nullptr);
       HWND summary = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, h, (HMENU)RV_SUMMARY, g_inst, nullptr);
       set_popup_font(summary, g_uiBoldFont);
@@ -1058,9 +1092,14 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_ERASEBKGND: return 1;
     case WM_PAINT:
-      paint_popup_header(h, g_reviewApplyKind == K_QAPPS ? L"Installed applications" : L"Review cleanup candidates",
-          g_reviewApplyKind == K_QAPPS ? L"Only registered official uninstallers may be selected. CNA never deletes an app folder directly."
-                                      : L"Select eligible items, inspect the evidence, then stage a reversible quarantine.");
+      const wchar_t* title = g_reviewApplyKind == K_QAPPS ? L"Installed applications" : g_reviewApplyKind == K_QRESTORE ? L"Quarantine recovery" :
+          g_reviewApplyKind == K_QDEBLOAT ? L"Windows changes" : g_reviewApplyKind == K_QCLEAN ? L"Cleanup rule review" : L"Review cleanup candidates";
+      const wchar_t* subtitle = g_reviewApplyKind == K_QAPPS ? L"Only registered official uninstallers may be selected. CNA never deletes an app folder directly."
+          : g_reviewApplyKind == K_QRESTORE ? L"Select held items to restore. Existing destination conflicts stay protected."
+          : g_reviewApplyKind == K_QDEBLOAT ? L"Only safe, reversible changes are eligible. Other changes remain visible for review."
+          : g_reviewApplyKind == K_QCLEAN ? L"Select established cleanup rules. This operation deletes cache data; locked files are skipped."
+          : L"Select eligible items, inspect the evidence, then stage a reversible quarantine.";
+      paint_popup_header(h, title, subtitle);
       return 0;
     case WM_NCHITTEST: return popup_hit_test(h, l, true);
     case WM_SIZE: review_resize(h); return 0;
@@ -1194,7 +1233,8 @@ static void clear_result() {
   g_heroBig = L"\u2014"; g_heroCap = L"Run a scan to see what can be cleaned"; g_heroMeta.clear();
   g_reportArgs.clear();
   g_selectable = false; g_selectPaths.clear(); g_selected.clear(); g_selectBaseArgs.clear(); g_selectKind = K_NONE; g_profileResultShown = false;
-  g_reviewItems.clear(); g_reviewApplyKind = K_NONE;
+  g_reviewItems.clear(); g_reviewApplyKind = K_NONE; g_reviewBaseArgs.clear();
+  g_reviewVisible.clear(); g_reviewFilter = 0; g_reviewSort = 2; g_reviewSortDesc = true;
   set_status(L"Ready");
 }
 
@@ -1203,6 +1243,7 @@ static void save_profile_result() {
   ProfileResult& r = g_profileResults[g_profile];
   r.valid = true; r.pending = g_pending; r.status = g_status; r.heroBig = g_heroBig; r.heroCap = g_heroCap;
   r.heroMeta = g_heroMeta; r.reportArgs = g_reportArgs; r.lines = g_lines;
+  r.reviewItems = g_reviewItems; r.reviewApplyKind = g_reviewApplyKind; r.reviewBaseArgs = g_reviewBaseArgs;
 }
 
 static void restore_profile_result(int profile) {
@@ -1210,6 +1251,7 @@ static void restore_profile_result(int profile) {
   if (!r.valid) { clear_result(); return; }
   g_pending = r.pending; g_status = r.status; g_heroBig = r.heroBig; g_heroCap = r.heroCap;
   g_heroMeta = r.heroMeta; g_reportArgs = r.reportArgs; g_lines = r.lines;
+  g_reviewItems = r.reviewItems; g_reviewApplyKind = r.reviewApplyKind; g_reviewBaseArgs = r.reviewBaseArgs;
   g_selectable = false; g_selectPaths.clear(); g_selected.clear(); g_selectBaseArgs.clear(); g_selectKind = K_NONE;
   g_profileResultShown = true;
 }
@@ -1340,20 +1382,37 @@ static void on_done(JobData* j) {
       p += 9;
     }
     std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.b > b.b; });
-    g_lines.clear();
+    g_lines.clear(); g_reviewItems.clear(); g_reviewApplyKind = K_QRESTORE; g_reviewBaseArgs.clear();
     for (auto& r : rows) g_lines.push_back({W(r.name), human(r.b)});
     g_heroBig = human(bytes);
     g_heroCap = std::wstring(L"can be reclaimed \u00B7 ") + kProfNames[g_profile] + L" profile";
     g_heroMeta = std::to_wstring(files) + L" files";
     g_reportArgs = L"scan --profile " + prof_arg() + L" -v";
     g_selectable = false; g_selectPaths.clear(); g_selected.clear(); g_selectBaseArgs.clear(); g_selectKind = K_NONE;
-    g_reviewItems.clear(); g_reviewApplyKind = K_NONE; g_profileResultShown = true;
+    g_reviewItems.clear(); g_reviewApplyKind = K_NONE; g_reviewBaseArgs = L"clean --profile " + prof_arg(); g_profileResultShown = true;
+    p = 0;
+    while ((p = o.find("{\"rule\":\"", p)) != std::string::npos) {
+      std::string rule = strat(o, p + 8), note = strat(o, kpos(o, "note", p));
+      uint64_t rule_bytes = numat(o, kpos(o, "bytes", p));
+      uint64_t rule_files = numat(o, kpos(o, "files", p));
+      uint64_t rule_failed = numat(o, kpos(o, "failed", p));
+      size_t paths = kpos(o, "paths", p);
+      std::string path = nth_str(o, paths, 0);
+      bool eligible = rule_bytes > 0 && rule_failed == 0 && !path.empty();
+      std::wstring evidence = eligible ? L"Established cleanup rule" : rule_failed ? L"Some files are locked" : L"No reclaimable data";
+      std::wstring reason = W(note);
+      if (!path.empty()) reason += (reason.empty() ? L"" : L"\n") + W(path);
+      if (rule_files) reason += L"\n" + std::to_wstring(rule_files) + L" file(s) in preview";
+      g_reviewItems.push_back({W(rule), eligible ? L"Eligible cleanup" : L"Needs review", evidence, reason, W(rule), rule_bytes, eligible, false});
+      p += 8;
+    }
     size_t sk = kpos(o, "skipped_needs_admin");
     size_t nadmin = 0;
     if (sk != std::string::npos) { size_t e = o.find(']', sk); if (e != std::string::npos && e > sk + 1) nadmin = count_of(o.substr(sk, e - sk), "\",\"") + 1; }
-    if (bytes > 0) {
-      g_pending = {true, L"Clean " + human(bytes), L"clean --profile " + prof_arg() + L" --yes --json", K_CLEAN};
-      set_status(nadmin ? std::to_wstring(nadmin) + L" rule(s) need administrator and were skipped" : L"Review, then clean");
+    if (bytes > 0 && !g_reviewItems.empty()) {
+      g_reviewApplyKind = K_QCLEAN;
+      g_pending = {true, L"Review cleanup", L"", K_REVIEW};
+      set_status(nadmin ? std::to_wstring(nadmin) + L" rule(s) need administrator and were skipped" : L"Review individual cleanup rules before cleaning");
     } else { g_pending = Pending(); set_status(L"Nothing to clean here"); }
   } else if (kind == K_CLEAN || kind == K_QUICK) {
     uint64_t bytes = numat(o, kpos(o, "total_bytes")), failed = numat(o, kpos(o, "failed"));
@@ -1443,19 +1502,31 @@ static void on_done(JobData* j) {
   } else if (kind == K_QUAR) {
     uint64_t total = numat(o, kpos(o, "total_bytes"));
     size_t n = count_of(o, "\"id\":\"");
-    g_lines.clear();
+    g_lines.clear(); g_reviewItems.clear(); g_reviewApplyKind = K_QRESTORE; g_reviewBaseArgs.clear();
     size_t p = 0;
     int shown = 0;
     while (shown < 3 && (p = o.find("{\"id\":\"", p)) != std::string::npos) {
       g_lines.push_back({leaf(strat(o, kpos(o, "original", p))), human(numat(o, kpos(o, "bytes", p)))});
       p += 7; ++shown;
     }
-    g_pending = Pending();
+    p = 0;
+    while ((p = o.find("{\"id\":\"", p)) != std::string::npos) {
+      std::string id = strat(o, p + 6), original = strat(o, kpos(o, "original", p));
+      std::string when = strat(o, kpos(o, "when", p)), reason = strat(o, kpos(o, "reason", p));
+      uint64_t bytes = numat(o, kpos(o, "bytes", p));
+      g_reviewItems.push_back({W(original), L"Quarantined", L"Restorable", L"Held since " + W(when) + L"\n" + W(reason), W(id), bytes, true, false});
+      p += 7;
+    }
     g_heroBig = human(total);
     g_heroCap = std::to_wstring(n) + L" item(s) held in quarantine";
     g_heroMeta.clear();
     g_reportArgs = L"quarantine list";
-    set_status(n ? L"Restore with: cna quarantine restore <id>" : L"Quarantine is empty");
+    if (n) { g_pending = {true, L"Review quarantine", L"", K_REVIEW}; set_status(L"Select items to restore; destination conflicts are blocked"); }
+    else { g_pending = Pending(); set_status(L"Quarantine is empty"); }
+  } else if (kind == K_RESTORE) {
+    g_pending = {true, L"Refresh quarantine", L"quarantine list --json", K_QUAR};
+    g_heroCap = L"restore completed; refresh to verify remaining entries";
+    set_status(L"Restore finished; refresh quarantine to inspect the result");
   } else if (kind == K_QDUPES || kind == K_QLEFT) {
     uint64_t b = kind == K_QDUPES ? numat(o, kpos(o, "total_wasted")) : numat(o, kpos(o, "quarantined_bytes"));
     g_pending = Pending(); g_lines.clear(); g_reportArgs.clear();
@@ -1508,23 +1579,32 @@ static void on_done(JobData* j) {
   } else if (kind == K_DEBLOAT) {
     uint64_t safe = numat(o, kpos(o, "pending_safe")), bal = numat(o, kpos(o, "pending_balanced")), agg = numat(o, kpos(o, "pending_aggressive"));
     uint64_t done = numat(o, kpos(o, "applied", o.find("\"summary\""))), adm = numat(o, kpos(o, "need_admin"));
-    g_lines.clear();
+    g_lines.clear(); g_reviewItems.clear(); g_reviewApplyKind = K_QDEBLOAT; g_reviewBaseArgs.clear();
     size_t p = 0, napps = 0;
     while ((p = o.find("{\"id\":\"", p)) != std::string::npos) {
-      std::string cat = strat(o, kpos(o, "category", p)), st = strat(o, kpos(o, "status", p)), title = strat(o, kpos(o, "title", p));
+      std::string id = strat(o, p + 6), cat = strat(o, kpos(o, "category", p)), st = strat(o, kpos(o, "status", p)), title = strat(o, kpos(o, "title", p));
+      std::string effect = strat(o, kpos(o, "effect", p)), cost = strat(o, kpos(o, "cost", p));
       uint64_t tier = numat(o, kpos(o, "tier", p));
+      bool reversible = boolat(o, kpos(o, "reversible", p));
+      bool needs_admin = boolat(o, kpos(o, "admin", p));
+      bool eligible = st == "pending" && tier == 1 && reversible && cat != "apps" && !needs_admin;
       if (st == "pending" && cat == "apps") ++napps;
       if (st == "pending" && tier == 1 && cat != "apps" && g_lines.size() < 3) g_lines.push_back({W(title), W(cat)});
+      std::wstring decision = eligible ? L"Eligible safe tweak" : st == "applied" ? L"Already applied" : cat == "apps" ? L"Blocked: irreversible app removal" : tier > 1 ? L"Needs review" : needs_admin ? L"Blocked: administrator required" : L"Needs review";
+      std::wstring evidence = L"Tier " + std::to_wstring(tier) + (reversible ? L" · reversible" : L" · not reversible");
+      std::wstring reason = W(effect);
+      if (!cost.empty()) reason += L"\nImpact: " + W(cost);
+      g_reviewItems.push_back({W(title), decision, evidence, reason, W(id), 0, eligible, false});
       p += 7;
     }
     g_heroBig = std::to_wstring(safe) + L" safe";
     g_heroCap = L"balanced " + std::to_wstring(bal) + L" \u00B7 aggressive " + std::to_wstring(agg) + L" \u00B7 " + std::to_wstring(done) + L" applied";
     g_heroMeta = napps ? std::to_wstring(napps) + L" Store apps" : L"";
     g_reportArgs = L"debloat scan -v";
-    if (safe > 0) {
-      g_pending = {true, L"Apply " + std::to_wstring(safe) + L" safe tweaks", L"debloat apply --preset safe --yes --json", K_DEBLOAT_APPLY};
-      set_status(adm ? std::to_wstring(adm) + L" item(s) need administrator (skipped)" : L"Reversible - undo from the tray menu");
-    } else { g_pending = Pending(); set_status(napps ? L"Store apps can be removed from the tray menu" : L"Nothing safe left to apply"); }
+    if (!g_reviewItems.empty()) {
+      g_pending = {true, L"Review Windows changes", L"", K_REVIEW};
+      set_status(adm ? std::to_wstring(adm) + L" item(s) need administrator; safe reversible items can be reviewed" : L"Review evidence before applying reversible changes");
+    } else { g_pending = Pending(); set_status(napps ? L"Store apps require a separate official review" : L"Nothing to review"); }
   } else if (kind == K_DEBLOAT_APPLY || kind == K_DEBLOAT_APPS) {
     uint64_t n = numat(o, kpos(o, "applied", o.find("\"dry_run\""))), bad = numat(o, kpos(o, "failed"));
     g_pending = Pending(); g_lines.clear(); g_reportArgs.clear();

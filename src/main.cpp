@@ -22,7 +22,7 @@ static void usage() {
       "  cna explain PATH [--refresh] [--llm] [--no-store]\n"
       "  cna kb [list|search WORDS|forget PATH]\n\n"
       "Safety net\n"
-      "  cna quarantine [list|restore ID|purge --older-than DAYS --yes]\n\n"
+      "  cna quarantine [list|restore ID|restore --id ID ...|purge --older-than DAYS --yes]\n\n"
       "Automation\n"
       "  cna config [path|init|show]\n"
       "  cna auto   [run|install|remove|status] [--force] [--dry-run] [--every-hours N]\n\n"

@@ -12,7 +12,8 @@ struct Stats { uint64_t files = 0, bytes = 0, failed = 0, failed_bytes = 0; };
 struct RuleResult { std::string rule, note, path, warn; Stats st; };
 unsigned parse_profiles(const std::string& csv, std::string& bad);
 void add_custom_rule(const std::string& pattern);
-std::vector<RuleResult> run_clean(unsigned mask, double override_age, bool apply, std::vector<std::string>& skipped_admin);
+std::vector<RuleResult> run_clean(unsigned mask, double override_age, bool apply, std::vector<std::string>& skipped_admin,
+                                  const std::set<std::string>& only_rules = {});
 int cmd_clean(const Args& a, bool force_dry);
 
 // ---- quarantine.cpp --------------------------------------------------------
