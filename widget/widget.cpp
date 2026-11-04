@@ -890,7 +890,9 @@ static int review_state(const ReviewItem& row) {
 }
 
 static bool review_matches(const ReviewItem& row, const std::wstring& query) {
-  if (g_reviewFilter && review_state(row) != g_reviewFilter) return false;
+  if (g_reviewFilter == 4) {
+    if (!row.eligible || g_reviewApplyKind == K_QCLEAN || g_reviewApplyKind == K_QDEBLOAT || g_reviewApplyKind == K_QAPPS || g_reviewApplyKind == K_QRESTORE) return false;
+  } else if (g_reviewFilter && review_state(row) != g_reviewFilter) return false;
   if (query.empty()) return true;
   std::wstring hay = lower_w(row.path + L"\n" + row.category + L"\n" + row.confidence + L"\n" + row.reason);
   return hay.find(query) != std::wstring::npos;
@@ -946,6 +948,13 @@ static void review_summary(HWND h) {
   if (selected && g_reviewApplyKind != K_QAPPS) summary += L"  ·  " + human(bytes);
   if (hidden) summary += L"  ·  " + std::to_wstring(hidden) + L" hidden by filter";
   SetWindowTextW(GetDlgItem(h, RV_SUMMARY), summary.c_str());
+  std::wstring action;
+  if (g_reviewApplyKind == K_QAPPS) action = selected ? L"Start uninstall (1)" : L"Start uninstall";
+  else if (g_reviewApplyKind == K_QCLEAN) action = selected ? L"Clean " + std::to_wstring(selected) + L" rule(s)" : L"Clean selected";
+  else if (g_reviewApplyKind == K_QDEBLOAT) action = selected ? L"Apply " + std::to_wstring(selected) + L" tweak(s)" : L"Apply selected";
+  else if (g_reviewApplyKind == K_QRESTORE) action = selected ? L"Restore " + std::to_wstring(selected) + L" item(s)" : L"Restore selected";
+  else action = selected ? L"Quarantine " + std::to_wstring(selected) + L" item(s)" : L"Stage quarantine";
+  SetWindowTextW(GetDlgItem(h, RV_STAGE), action.c_str());
 }
 
 static void review_resize(HWND h) {
@@ -979,7 +988,7 @@ static void stage_review_selection() {
   else if (g_reviewApplyKind == K_QAPPS) args = L"apps remove --yes";
   else if (g_reviewApplyKind == K_QCLEAN) args = g_reviewBaseArgs + L" --yes --json";
   else if (g_reviewApplyKind == K_QDEBLOAT) args = L"debloat apply --yes --json";
-  else if (g_reviewApplyKind == K_QRESTORE) args = L"quarantine restore";
+  else if (g_reviewApplyKind == K_QRESTORE) args = L"quarantine restore --json";
   else return;
   uint64_t bytes = 0;
   int n = 0;
@@ -1067,7 +1076,7 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       set_popup_font(g_reviewList);
       g_reviewFilterBox = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
           0, 0, 0, 0, h, (HMENU)RV_FILTER, g_inst, nullptr);
-      for (const wchar_t* label : {L"All results", L"Eligible", L"Needs review", L"Blocked / protected"}) SendMessageW(g_reviewFilterBox, CB_ADDSTRING, 0, (LPARAM)label);
+      for (const wchar_t* label : {L"All results", L"Eligible", L"Needs review", L"Blocked / protected", L"Quarantine eligible"}) SendMessageW(g_reviewFilterBox, CB_ADDSTRING, 0, (LPARAM)label);
       SendMessageW(g_reviewFilterBox, CB_SETCURSEL, 0, 0);
       g_reviewSearch = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
           0, 0, 0, 0, h, (HMENU)RV_SEARCH, g_inst, nullptr);
@@ -1091,7 +1100,7 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       return 0;
     }
     case WM_ERASEBKGND: return 1;
-    case WM_PAINT:
+    case WM_PAINT: {
       const wchar_t* title = g_reviewApplyKind == K_QAPPS ? L"Installed applications" : g_reviewApplyKind == K_QRESTORE ? L"Quarantine recovery" :
           g_reviewApplyKind == K_QDEBLOAT ? L"Windows changes" : g_reviewApplyKind == K_QCLEAN ? L"Cleanup rule review" : L"Review cleanup candidates";
       const wchar_t* subtitle = g_reviewApplyKind == K_QAPPS ? L"Only registered official uninstallers may be selected. CNA never deletes an app folder directly."
@@ -1101,6 +1110,7 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
           : L"Select eligible items, inspect the evidence, then stage a reversible quarantine.";
       paint_popup_header(h, title, subtitle);
       return 0;
+    }
     case WM_NCHITTEST: return popup_hit_test(h, l, true);
     case WM_SIZE: review_resize(h); return 0;
     case WM_DRAWITEM: return draw_popup_button((DRAWITEMSTRUCT*)l);
