@@ -7,6 +7,7 @@ dist/
 *.obj
 *.res
 /cna
+/cna.zip
 # editor / OS
 .vs/
 .vscode/
