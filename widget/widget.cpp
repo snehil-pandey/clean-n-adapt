@@ -33,9 +33,9 @@ using namespace Gdiplus;
 #define WM_TRAY (WM_APP + 2)
 #define WM_SHOWME (WM_APP + 3)
 enum { T_ANIM = 1, T_CONFIRM = 2, T_DISK = 3 };
-enum { ID_NONE = 0, ID_CLOSE, ID_PIN, ID_PROF = 10, ID_SCAN = 20, ID_ACTION, ID_DUPES = 30, ID_LEFT, ID_QUAR, ID_SMART, ID_DEBLOAT, ID_APPS, ID_DETAILS = 40, ID_AUTO, ID_RESULT_ROW = 60 };
-enum { CM_SHOW = 1, CM_QUICK, CM_AUTORUN, CM_PIN, CM_STARTUP, CM_UNDO_DEBLOAT, CM_REMOVE_APPS, CM_EXIT };
-enum Kind { K_NONE, K_SCAN, K_CLEAN, K_QUICK, K_DUPES, K_LEFT, K_QUAR, K_QDUPES, K_QLEFT, K_AUTOSTAT, K_AUTOSET, K_AUTORUN, K_DETAILS, K_SMART, K_QSMART, K_DEBLOAT, K_DEBLOAT_APPLY, K_DEBLOAT_UNDO, K_DEBLOAT_APPS, K_APPS, K_APP_REMOVE, K_APP_LEFT, K_QAPPS, K_QCLEAN, K_QDEBLOAT, K_QRESTORE, K_RESTORE, K_REVIEW };
+enum { ID_NONE = 0, ID_CLOSE, ID_PIN, ID_PROF = 10, ID_SCAN = 20, ID_ACTION, ID_DUPES = 30, ID_LEFT, ID_QUAR, ID_SMART, ID_DEBLOAT, ID_APPS, ID_DETAILS = 40, ID_TOOLS, ID_AUTO, ID_RESULT_ROW = 60 };
+enum { CM_SHOW = 1, CM_QUICK, CM_AUTORUN, CM_PIN, CM_STARTUP, CM_UNDO_DEBLOAT, CM_REMOVE_APPS, CM_TOOLS, CM_ABOUT, CM_EXIT };
+enum Kind { K_NONE, K_SCAN, K_CLEAN, K_QUICK, K_DUPES, K_LEFT, K_QUAR, K_QDUPES, K_QLEFT, K_AUTOSTAT, K_AUTOSET, K_AUTORUN, K_DETAILS, K_SMART, K_QSMART, K_DEBLOAT, K_DEBLOAT_APPLY, K_DEBLOAT_UNDO, K_DEBLOAT_APPS, K_APPS, K_APP_REMOVE, K_APP_LEFT, K_QAPPS, K_QCLEAN, K_QDEBLOAT, K_QRESTORE, K_RESTORE, K_REVIEW, K_TOOLS };
 
 static const wchar_t* kClass = L"CnaWidgetWnd";
 static const wchar_t* kRunKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -93,6 +93,9 @@ static std::vector<bool> g_selected;
 static std::wstring g_selectBaseArgs;
 static int g_selectKind = K_NONE;
 static uint64_t g_diskFree = 0, g_diskTotal = 0;
+
+static void save_profile_result();
+static void restore_profile_result(int profile);
 static bool g_diskOk = false;
 
 static HANDLE g_child = nullptr;
@@ -326,6 +329,7 @@ static void layout() {
   add(ID_SMART, 16, 374, uw, 56);
   add(ID_DEBLOAT, 16 + uw + 8, 374, uw, 56);
   add(ID_APPS, 16 + 2 * (uw + 8), 374, uw, 56);
+  add(ID_TOOLS, kW - 16 - 12 - 124, 444, 52, 20);
   add(ID_DETAILS, kW - 16 - 12 - 64, 444, 64, 20);
   if (g_selectable) {
     for (size_t i = 0; i < g_lines.size() && i < 3; ++i) add(ID_RESULT_ROW + (int)i, 24, 466 + (float)i * 17, 280, 17);
@@ -337,6 +341,7 @@ static bool enabled(int id) {
   if (g_busy) return id == ID_ACTION;
   if (id == ID_ACTION) return g_pending.on;
   if (id == ID_DETAILS) return !g_reportArgs.empty();
+  if (id == ID_TOOLS) return !g_busy;
   return true;
 }
 static int hit(int x, int y) {
@@ -476,7 +481,10 @@ static void paint(HDC hdc) {
     box(g, r, SF(8), T.card, &T.border);
     txt(g, L"Results", fSmall, R(28, 444, 100, 20), T.sub);
     bool en = enabled(ID_DETAILS);
+    RectF tools = rect_of(ID_TOOLS);
     RectF d = rect_of(ID_DETAILS);
+    txt(g, L"Tools", fSmall, tools,
+        enabled(ID_TOOLS) ? (g_hot == ID_TOOLS ? T.accentH : T.accent) : mix(T.sub, T.card, 0.5f), StringAlignmentFar);
     txt(g, g_reviewItems.empty() ? L"Details" : L"Review", fSmall, d,
         en ? (g_hot == ID_DETAILS ? T.accentH : T.accent) : mix(T.sub, T.card, 0.5f), StringAlignmentFar);
     if (g_lines.empty()) {
@@ -972,7 +980,8 @@ static void review_summary(HWND h) {
   if (hidden) summary += L"  ·  " + std::to_wstring(hidden) + L" hidden by filter";
   SetWindowTextW(GetDlgItem(h, RV_SUMMARY), summary.c_str());
   std::wstring action;
-  if (g_reviewApplyKind == K_QAPPS) action = selected ? L"Start uninstall (1)" : L"Start uninstall";
+  if (g_reviewApplyKind == K_TOOLS) action = selected ? L"Open selected" : L"Open tool";
+  else if (g_reviewApplyKind == K_QAPPS) action = selected ? L"Start uninstall (1)" : L"Start uninstall";
   else if (g_reviewApplyKind == K_QCLEAN) action = selected ? L"Clean " + std::to_wstring(selected) + L" rule(s)" : L"Clean selected";
   else if (g_reviewApplyKind == K_QDEBLOAT) action = selected ? L"Apply " + std::to_wstring(selected) + L" tweak(s)" : L"Apply selected";
   else if (g_reviewApplyKind == K_QRESTORE) action = selected ? L"Restore " + std::to_wstring(selected) + L" item(s)" : L"Restore selected";
@@ -1004,6 +1013,54 @@ static void review_resize(HWND h) {
 
 static void stage_review_selection() {
   if (!g_reviewList) return;
+  if (g_reviewApplyKind == K_TOOLS) {
+    const ReviewItem* selected = nullptr;
+    for (const auto& row : g_reviewItems) if (row.selected && row.eligible) {
+      if (selected) { show_prompt(L"Choose one tool", L"Open one command surface at a time so its result stays clear and actionable.", L"Close"); return; }
+      selected = &row;
+    }
+    if (!selected) { show_prompt(L"Nothing selected", L"Choose one tool to open.", L"Close"); return; }
+    std::wstring command = selected->command;
+    DestroyWindow(g_reviewWnd);
+    g_reviewItems.clear(); g_reviewApplyKind = K_NONE; g_reviewBaseArgs.clear();
+    if (command == L"scan-refresh") start_job(K_SCAN, L"scan --profile " + prof_arg() + L" --refresh --json", L"Refreshing discovery…");
+    else if (command.rfind(L"scan-profile-", 0) == 0) {
+      std::wstring profile = command.substr(std::wstring(L"scan-profile-").size());
+      start_job(K_SCAN, L"scan --profile " + profile + L" --json", L"Scanning profile…");
+    }
+    else if (command == L"open-dupes") start_job(K_DUPES, L"dupes --min-size 10M --json", L"Looking for duplicates…");
+    else if (command == L"open-leftovers") start_job(K_LEFT, L"remnants --json", L"Looking for leftovers…");
+    else if (command == L"open-quarantine") start_job(K_QUAR, L"quarantine list --json", L"Reading quarantine…");
+    else if (command == L"open-advice") start_job(K_SMART, L"recommend --json", L"Analysing folders…");
+    else if (command == L"open-windows") start_job(K_DEBLOAT, L"debloat scan --json", L"Checking Windows…");
+    else if (command == L"open-apps") start_job(K_APPS, L"apps list --json", L"Reading installed apps…");
+    else if (command == L"auto-run") start_job(K_AUTORUN, L"auto run --force", L"Running auto-clean…");
+    else if (command == L"model-reset") show_prompt(L"Reset on-device model", L"This removes your recorded model feedback and restores the built-in conservative seed. It does not delete files.", L"Reset model", K_DETAILS, L"model reset --yes", L"Resetting model…");
+    else if (command == L"auto-install") show_prompt(L"Enable scheduled maintenance", L"Create the local Windows task that runs the configured safe maintenance profile every six hours.", L"Enable schedule", K_AUTOSET, L"auto install --every-hours 6", L"Creating schedule…");
+    else if (command == L"auto-remove") show_prompt(L"Disable scheduled maintenance", L"Remove the Clean-n-Adapt scheduled maintenance task. No files or settings are deleted.", L"Disable schedule", K_AUTOSET, L"auto remove", L"Removing schedule…");
+    else if (command == L"config-init") show_prompt(L"Create configuration", L"Create the local configuration file if it does not already exist. Existing configuration is left unchanged.", L"Create config", K_DETAILS, L"config init", L"Creating configuration…");
+    else if (command == L"explain-folder" || command == L"model-predict-folder" || command == L"model-forget-folder" ||
+             command == L"kb-forget-folder" || command.rfind(L"model-feedback-", 0) == 0) {
+      BROWSEINFOW bi{}; bi.hwndOwner = g_hwnd; bi.lpszTitle = L"Choose a folder to inspect"; bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+      PIDLIST_ABSOLUTE pid = SHBrowseForFolderW(&bi);
+      if (!pid) { set_status(L"Folder inspection cancelled"); return; }
+      wchar_t path[MAX_PATH]{}; bool ok = SHGetPathFromIDListW(pid, path) != FALSE; CoTaskMemFree(pid);
+      if (ok) {
+        std::wstring quoted = L"\"" + std::wstring(path) + L"\"";
+        if (command == L"explain-folder") start_job(K_DETAILS, L"explain " + quoted + L" --json", L"Inspecting folder…");
+        else if (command == L"model-predict-folder") start_job(K_DETAILS, L"model predict " + quoted + L" --json", L"Inspecting model evidence…");
+        else if (command == L"model-forget-folder") show_prompt(L"Forget model feedback", L"Remove the model decision recorded for the selected folder and retrain from the remaining local feedback.", L"Forget", K_DETAILS, L"model forget " + quoted, L"Updating model…");
+        else if (command == L"kb-forget-folder") show_prompt(L"Forget knowledge entry", L"Remove the stored local explanation for the selected folder. The folder itself is not changed.", L"Forget", K_DETAILS, L"kb forget " + quoted, L"Updating knowledge base…");
+        else {
+          std::wstring label = command.substr(std::wstring(L"model-feedback-").size());
+          show_prompt(L"Teach on-device model", L"Record your classification for the selected folder. This changes only local model feedback, never the folder itself.", L"Save decision", K_DETAILS,
+              L"model feedback " + quoted + L" --label " + label, L"Saving model feedback…");
+        }
+      }
+      else set_status(L"Could not read the selected folder", true);
+    } else start_job(K_DETAILS, command, L"Loading tool result…");
+    return;
+  }
   std::wstring args;
   if (g_reviewApplyKind == K_QLEFT) args = (g_reviewBaseArgs.empty() ? L"remnants" : g_reviewBaseArgs) + L" --quarantine --yes --json";
   else if (g_reviewApplyKind == K_QSMART) args = L"recommend --apply --yes --json";
@@ -1109,7 +1166,7 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
       CreateWindowW(L"BUTTON", L"Select shown", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_ALL, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Clear all", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_NONE, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Inspect", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_INSPECT, g_inst, nullptr);
-      const wchar_t* stage = g_reviewApplyKind == K_QAPPS ? L"Start uninstall" : g_reviewApplyKind == K_QCLEAN ? L"Clean selected" :
+      const wchar_t* stage = g_reviewApplyKind == K_TOOLS ? L"Open tool" : g_reviewApplyKind == K_QAPPS ? L"Start uninstall" : g_reviewApplyKind == K_QCLEAN ? L"Clean selected" :
           g_reviewApplyKind == K_QDEBLOAT ? L"Apply selected" : g_reviewApplyKind == K_QRESTORE ? L"Restore selected" : L"Stage quarantine";
       CreateWindowW(L"BUTTON", stage, WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_STAGE, g_inst, nullptr);
       CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, h, (HMENU)RV_CLOSE, g_inst, nullptr);
@@ -1124,9 +1181,10 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_ERASEBKGND: return 1;
     case WM_PAINT: {
-      const wchar_t* title = g_reviewApplyKind == K_QAPPS ? L"Installed applications" : g_reviewApplyKind == K_QRESTORE ? L"Quarantine recovery" :
+      const wchar_t* title = g_reviewApplyKind == K_TOOLS ? L"Tools and settings" : g_reviewApplyKind == K_QAPPS ? L"Installed applications" : g_reviewApplyKind == K_QRESTORE ? L"Quarantine recovery" :
           g_reviewApplyKind == K_QDEBLOAT ? L"Windows changes" : g_reviewApplyKind == K_QCLEAN ? L"Cleanup rule review" : L"Review cleanup candidates";
-      const wchar_t* subtitle = g_reviewApplyKind == K_QAPPS ? L"Only registered official uninstallers may be selected. CNA never deletes an app folder directly."
+      const wchar_t* subtitle = g_reviewApplyKind == K_TOOLS ? L"Open advanced local maintenance controls through the same engine as the CLI."
+          : g_reviewApplyKind == K_QAPPS ? L"Only registered official uninstallers may be selected. CNA never deletes an app folder directly."
           : g_reviewApplyKind == K_QRESTORE ? L"Select held items to restore. Existing destination conflicts stay protected."
           : g_reviewApplyKind == K_QDEBLOAT ? L"Only safe, reversible changes are eligible. Other changes remain visible for review."
           : g_reviewApplyKind == K_QCLEAN ? L"Select established cleanup rules. This operation deletes cache data; locked files are skipped."
@@ -1206,7 +1264,12 @@ static LRESULT CALLBACK ReviewWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case RV_CLOSE: case PC_CLOSE: DestroyWindow(h); return 0;
       }
       break;
-    case WM_DESTROY: g_reviewWnd = nullptr; g_reviewList = nullptr; return 0;
+    case WM_DESTROY: {
+      bool returning = g_reviewApplyKind == K_TOOLS;
+      g_reviewWnd = nullptr; g_reviewList = nullptr;
+      if (returning) { restore_profile_result(g_profile); layout(); invalidate(); }
+      return 0;
+    }
   }
   return DefWindowProcW(h, m, w, l);
 }
@@ -1257,6 +1320,57 @@ static void show_review_window() {
       WS_POPUP | WS_THICKFRAME | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, SI(1100), SI(680), g_hwnd, nullptr, g_inst, nullptr);
   if (!g_reviewWnd) set_status(L"Could not open the review window", true);
   else place_popup_near_widget(g_reviewWnd);
+}
+
+static void show_tools_window() {
+  if (g_busy) return;
+  if (g_reviewWnd) DestroyWindow(g_reviewWnd);
+  save_profile_result();
+  g_reviewItems.clear(); g_reviewApplyKind = K_TOOLS; g_reviewBaseArgs.clear();
+  auto add = [](const wchar_t* name, const wchar_t* category, const wchar_t* evidence, const wchar_t* why, const wchar_t* command) {
+    g_reviewItems.push_back({name, category, evidence, why, command, 0, true, false});
+  };
+  add(L"Refresh selected profile", L"Scanning", L"Bypasses preview cache", L"Walk the current profile again and rebuild its review rows.", L"scan-refresh");
+  add(L"Windows cleanup profile", L"Scanning", L"Administrator-aware rules", L"Preview Windows maintenance targets; administrator-only rules are shown as skipped when unavailable.", L"scan-profile-windows");
+  add(L"Application-cache profile", L"Scanning", L"Established app cache rules", L"Preview supported application caches such as Discord, Slack, and Spotify.", L"scan-profile-apps");
+  add(L"Custom cleanup profile", L"Scanning", L"Configuration-backed rules", L"Preview custom patterns defined in the local Clean-n-Adapt configuration.", L"scan-profile-custom");
+  add(L"Inspect a folder", L"Analysis", L"Rules, ownership, local model", L"Choose a folder to explain its safety, owner, and cleanup evidence.", L"explain-folder");
+  add(L"Duplicate review", L"Storage", L"SHA-256 verified", L"Open the verified duplicate workflow with selective quarantine.", L"open-dupes");
+  add(L"Leftovers review", L"Storage", L"Installed-app inventory", L"Find evidence-backed app remnants without automatically removing them.", L"open-leftovers");
+  add(L"Quarantine recovery", L"Safety", L"Restorable entries", L"Inspect and selectively restore held files and folders.", L"open-quarantine");
+  add(L"Smart advice", L"Analysis", L"Rules plus local feedback", L"Review local recommendations; model-only guesses remain review-only.", L"open-advice");
+  add(L"Windows maintenance", L"Windows", L"Reversible journal", L"Review safe Windows changes and see blocked or administrator-only items.", L"open-windows");
+  add(L"Installed applications", L"Applications", L"Official uninstallers only", L"Review apps and launch only a registered official uninstaller.", L"open-apps");
+  add(L"Run scheduled profile now", L"Automation", L"Local task configuration", L"Run the configured maintenance profile once, subject to its safety settings.", L"auto-run");
+  add(L"Enable six-hour schedule", L"Automation", L"Windows Task Scheduler", L"Create a local recurring maintenance task.", L"auto-install");
+  add(L"Disable schedule", L"Automation", L"Windows Task Scheduler", L"Remove the local recurring maintenance task.", L"auto-remove");
+  add(L"Schedule status", L"Automation", L"Task Scheduler query", L"Show configuration path, last run, and task registration.", L"auto status");
+  add(L"Configuration", L"Settings", L"Local state only", L"Show the active configuration, including custom rules and exclusions.", L"config show");
+  add(L"Create configuration", L"Settings", L"Non-destructive", L"Create the default local configuration if none exists.", L"config-init");
+  add(L"Memory status", L"Diagnostics", L"Runtime measurement", L"Show the current process memory use and hard memory cap.", L"mem");
+  add(L"Model status", L"Local model", L"Persisted local feedback", L"Show on-device model training and feedback counts.", L"model status --json");
+  add(L"Evaluate model safeguards", L"Local model", L"Built-in evaluation", L"Run the model safety evaluation; this does not scan personal files.", L"model eval --json");
+  add(L"Retrain model", L"Local model", L"Local feedback only", L"Rebuild the on-device model from built-in rules and your decisions.", L"model retrain");
+  add(L"Reset model", L"Local model", L"Confirmation required", L"Forget locally recorded model feedback and restore the conservative seed.", L"model-reset");
+  add(L"Predict a folder", L"Local model", L"Folder picker", L"Inspect the current model prediction without changing files or feedback.", L"model-predict-folder");
+  add(L"Teach: regenerable", L"Local model", L"Folder picker", L"Mark a selected folder as regenerable in local feedback.", L"model-feedback-regenerable");
+  add(L"Teach: caution", L"Local model", L"Folder picker", L"Mark a selected folder as data that needs review.", L"model-feedback-caution");
+  add(L"Teach: keep", L"Local model", L"Folder picker", L"Mark a selected folder as protected data in local feedback.", L"model-feedback-keep");
+  add(L"Forget model feedback", L"Local model", L"Folder picker", L"Remove the saved model decision for one folder.", L"model-forget-folder");
+  add(L"Knowledge base", L"Knowledge", L"Local explanations", L"List locally stored folder explanations.", L"kb list");
+  add(L"Forget knowledge entry", L"Knowledge", L"Folder picker", L"Remove a stored local explanation for one folder.", L"kb-forget-folder");
+  add(L"Command reference", L"Help", L"Built-in help", L"Open the complete CLI command and flag reference.", L"help");
+  show_review_window();
+}
+
+static void show_about_window() {
+  show_prompt(L"About Clean-n-Adapt",
+      L"Clean-n-Adapt 3.0.2\n\n"
+      L"A local-first Windows maintenance utility. The widget and CLI use the same C++ engine, safety rules, memory cap, quarantine, and review data.\n\n"
+      L"Author: Snehil Pandey\n"
+      L"Repository: github.com/snehil-pandey/clean-n-adapt\n\n"
+      L"No cloud account is required. Cleanup, classification, and model feedback stay on this PC.",
+      L"Close");
 }
 
 static std::wstring prof_arg() { return kProfArgs[g_profile]; }
@@ -1704,6 +1818,7 @@ static void do_click(int id) {
       if (!g_busy && !g_reviewItems.empty()) show_review_window();
       else if (!g_busy && !g_reportArgs.empty()) start_job(K_DETAILS, g_reportArgs, L"Preparing diagnostic output\u2026");
       break;
+    case ID_TOOLS: show_tools_window(); break;
     case ID_AUTO:
       if (!g_busy) start_job(K_AUTOSET, g_autoOn ? L"auto remove" : L"auto install --every-hours 6", g_autoOn ? L"Removing scheduled task\u2026" : L"Creating scheduled task\u2026");
       break;
@@ -1734,9 +1849,11 @@ static void tray_menu() {
   AppendMenuW(m, MF_STRING | (g_pinned ? MF_CHECKED : 0), CM_PIN, L"Keep widget on top");
   AppendMenuW(m, MF_STRING | (startup_enabled() ? MF_CHECKED : 0), CM_STARTUP, L"Start with Windows");
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(m, MF_STRING | (g_busy ? MF_GRAYED : 0), CM_TOOLS, L"Tools and settings\u2026");
   AppendMenuW(m, MF_STRING | (g_busy ? MF_GRAYED : 0), CM_REMOVE_APPS, L"Review bloat apps\u2026");
   AppendMenuW(m, MF_STRING | (g_busy ? MF_GRAYED : 0), CM_UNDO_DEBLOAT, L"Undo debloat changes\u2026");
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(m, MF_STRING, CM_ABOUT, L"About Clean-n-Adapt");
   AppendMenuW(m, MF_STRING, CM_EXIT, L"Exit");
   POINT pt;
   GetCursorPos(&pt);
@@ -1824,6 +1941,8 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case CM_AUTORUN: start_job(K_AUTORUN, L"auto run --force", L"Running auto-clean\u2026"); break;
         case CM_PIN: set_pinned(!g_pinned); break;
         case CM_STARTUP: set_startup(!startup_enabled()); break;
+        case CM_TOOLS: show_tools_window(); break;
+        case CM_ABOUT: show_about_window(); break;
         case CM_REMOVE_APPS:
           if (!g_busy) start_job(K_DEBLOAT, L"debloat scan --json", L"Reviewing bloat apps\u2026");
           break;

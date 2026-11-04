@@ -28,7 +28,7 @@ Unicode true
 !endif
 
 !define APP        "Clean-n-Adapt"
-!define PUBLISHER  "Clean-n-Adapt"
+!define PUBLISHER  "Snehil Pandey"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\CleanNAdapt"
 !define RUN_KEY    "Software\Microsoft\Windows\CurrentVersion\Run"
 !define TASK_NAME  "cna-auto"
@@ -49,7 +49,7 @@ VIAddVersionKey "FileDescription" "${APP} installer"
 VIAddVersionKey "FileVersion"     "${VERSION}"
 VIAddVersionKey "ProductVersion"  "${VERSION}"
 VIAddVersionKey "CompanyName"     "${PUBLISHER}"
-VIAddVersionKey "LegalCopyright"  "Copyright (C) ${PUBLISHER}"
+VIAddVersionKey "LegalCopyright"  "Copyright (C) Snehil Pandey"
 
 !include "MUI2.nsh"
 !include "LogicLib.nsh"

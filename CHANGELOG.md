@@ -6,6 +6,13 @@ All notable changes to Clean-n-Adapt are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The widget exposes a Tools and settings surface for advanced local engine
+  controls, including refresh scans, configuration, scheduling, model and
+  knowledge-base actions, memory status, folder inspection, and command help.
+- The installer and Apps & Features registration now identify Snehil Pandey as
+  the application publisher. The widget includes a matching About surface.
+
 ## [3.0.2] - 2026-11-03
 
 ### Changed
