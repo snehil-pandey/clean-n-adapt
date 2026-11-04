@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <dwmapi.h>
 #include <commctrl.h>
 
@@ -96,6 +97,7 @@ static uint64_t g_diskFree = 0, g_diskTotal = 0;
 
 static void save_profile_result();
 static void restore_profile_result(int profile);
+static std::wstring prof_arg();
 static bool g_diskOk = false;
 
 static HANDLE g_child = nullptr;
