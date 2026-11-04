@@ -984,7 +984,11 @@ static void stage_review_selection() {
       app_label = g_reviewItems[i].path;
     } else args += L" --select \"" + g_reviewItems[i].path + L"\"";
     bytes += g_reviewItems[i].bytes; ++n;
-    if (n <= 5) listed += (listed.empty() ? L"" : L"\n") + L"• " + g_reviewItems[i].path;
+    if (n <= 5) {
+      if (!listed.empty()) listed += L"\n";
+      listed += L"• ";
+      listed += g_reviewItems[i].path;
+    }
   }
   if (!n) { show_prompt(L"Nothing selected", g_reviewApplyKind == K_QAPPS ? L"Only apps with a registered official uninstaller can be selected." : L"Choose at least one eligible item before staging a quarantine. Protected items cannot be selected.", L"Close"); return; }
   g_pending = g_reviewApplyKind == K_QAPPS
